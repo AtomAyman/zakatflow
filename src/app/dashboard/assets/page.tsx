@@ -15,6 +15,8 @@ import {
     Package,
     FileText,
     Scale,
+    Banknote,
+    BarChart3,
 } from 'lucide-react';
 import {
     type Asset,
@@ -27,6 +29,16 @@ import {
 } from '@/lib/types';
 import { v4 as uuid } from 'uuid';
 import YearSelector from '@/components/YearSelector';
+
+// ─── Tab & Type Groupings ─────────────────────────────────
+
+type AssetTab = 'Money' | 'Stocks' | 'Gold & Silver';
+
+const ASSET_TABS: { key: AssetTab; label: string; icon: typeof DollarSign; types: AssetType[] }[] = [
+    { key: 'Money', label: 'Money', icon: Banknote, types: ['Cash', 'Bank', 'Debt_Receivable'] },
+    { key: 'Stocks', label: 'Investments', icon: BarChart3, types: ['Stock', 'Crypto', 'Retirement', 'Merchandise'] },
+    { key: 'Gold & Silver', label: 'Gold & Silver', icon: Gem, types: ['Gold', 'Silver'] },
+];
 
 const typeIcons: Record<AssetType, typeof DollarSign> = {
     Cash: DollarSign,
@@ -66,41 +78,48 @@ const GOLD_PURITIES = [
     { value: 14, label: '14K' },
 ];
 
+const gradientMap: Record<string, string> = {
+    Cash: 'from-emerald-400 to-emerald-600',
+    Bank: 'from-blue-400 to-blue-600',
+    Stock: 'from-purple-400 to-purple-600',
+    Crypto: 'from-amber-400 to-amber-600',
+    Retirement: 'from-red-400 to-red-600',
+    Gold: 'from-yellow-400 to-yellow-600',
+    Silver: 'from-slate-300 to-slate-500',
+    Merchandise: 'from-pink-400 to-pink-600',
+    Debt_Receivable: 'from-cyan-400 to-cyan-600',
+};
+
+// ─── Component ────────────────────────────────────────────
+
 export default function AssetsPage() {
     const { addAsset, removeAsset, settings, dashboard, prices, selectedYear, getAssetsForYear } = useZakatStore();
     const yearAssets = getAssetsForYear(selectedYear);
+    const [activeTab, setActiveTab] = useState<AssetTab>('Money');
     const [showForm, setShowForm] = useState(false);
 
     // Form state
-    const [newType, setNewType] = useState<AssetType>('Cash');
+    const activeTabConfig = ASSET_TABS.find((t) => t.key === activeTab)!;
+    const filteredAssets = yearAssets.filter((a) => activeTabConfig.types.includes(a.type));
+
+    const [newType, setNewType] = useState<AssetType>(activeTabConfig.types[0]);
     const [newName, setNewName] = useState('');
     const [newValue, setNewValue] = useState('');
     const [newCurrency, setNewCurrency] = useState(settings.baseCurrency);
     const [newValuation, setNewValuation] = useState('100');
     const [isJewelry, setIsJewelry] = useState(false);
-
-    // Gold/Silver specific
     const [isETF, setIsETF] = useState(false);
     const [weightInput, setWeightInput] = useState('');
     const [weightUnit, setWeightUnit] = useState<WeightUnit>('grams');
     const [goldPurity, setGoldPurity] = useState(24);
-
-    // Stock-specific
     const [stockHoldingType, setStockHoldingType] = useState<StockHoldingType>('Short_Term');
     const [zakatableAssetPercent, setZakatableAssetPercent] = useState('40');
-
-    // Retirement-specific
     const [retirementType, setRetirementType] = useState<RetirementType>('Voluntary');
-
-    // Crypto-specific
     const [cryptoIntent, setCryptoIntent] = useState<CryptoIntent>('Currency');
-
-    // Debt receivable
     const [debtStrength, setDebtStrength] = useState<'Strong' | 'Weak' | 'Intermediate'>('Strong');
 
     const isGoldSilver = newType === 'Gold' || newType === 'Silver';
 
-    // Calculate live value from weight
     const computedValue = useMemo(() => {
         if (!isGoldSilver || isETF || !weightInput) return null;
         const unitInfo = WEIGHT_UNITS.find((u) => u.value === weightUnit);
@@ -118,6 +137,27 @@ export default function AssetsPage() {
             maximumFractionDigits: 0,
         }).format(n);
 
+    // When switching tabs, reset the form type to the first type in that tab
+    const handleTabSwitch = (tab: AssetTab) => {
+        setActiveTab(tab);
+        const tabConfig = ASSET_TABS.find((t) => t.key === tab)!;
+        setNewType(tabConfig.types[0]);
+        setShowForm(false);
+    };
+
+    const openFormForTab = () => {
+        setNewType(activeTabConfig.types[0]);
+        setNewName('');
+        setNewValue('');
+        setNewValuation('100');
+        setIsJewelry(false);
+        setIsETF(false);
+        setWeightInput('');
+        setWeightUnit('grams');
+        setGoldPurity(24);
+        setShowForm(true);
+    };
+
     const handleAdd = () => {
         let grossValue = Number(newValue) || 0;
         let weightGrams: number | undefined;
@@ -125,8 +165,6 @@ export default function AssetsPage() {
         if (isGoldSilver && !isETF && weightInput) {
             const unitInfo = WEIGHT_UNITS.find((u) => u.value === weightUnit);
             weightGrams = Number(weightInput) * (unitInfo?.toGrams ?? 1);
-            // grossValue is computed from weight × live price (the engine handles this)
-            // But we store a fallback grossValue too
             const pricePerGram = newType === 'Gold' ? prices.goldPerGram : prices.silverPerGram;
             const purityMult = newType === 'Gold' ? goldPurity / 24 : 1;
             grossValue = weightGrams * pricePerGram * purityMult;
@@ -137,7 +175,7 @@ export default function AssetsPage() {
             zakatYear: selectedYear,
             type: newType,
             name: newName || typeLabels[newType],
-            currency: isGoldSilver && !isETF ? 'USD' : newCurrency, // weight-based gold/silver priced in USD
+            currency: isGoldSilver && !isETF ? 'USD' : newCurrency,
             grossValue,
             zakatMethod: 'Market',
             valuationPercent: Number(newValuation) || 100,
@@ -160,8 +198,6 @@ export default function AssetsPage() {
         };
 
         addAsset(asset);
-
-        // Save to sheet
         fetch('/api/sheets/assets', {
             method: 'POST',
             headers: {
@@ -171,7 +207,6 @@ export default function AssetsPage() {
             body: JSON.stringify(asset),
         }).catch(console.error);
 
-        // Reset
         setNewName('');
         setNewValue('');
         setNewValuation('100');
@@ -195,6 +230,15 @@ export default function AssetsPage() {
         }).catch(console.error);
     };
 
+    // Tab counts
+    const tabCounts = ASSET_TABS.reduce((acc, tab) => {
+        acc[tab.key] = yearAssets.filter((a) => tab.types.includes(a.type)).length;
+        return acc;
+    }, {} as Record<AssetTab, number>);
+
+    // Tab totals
+    const tabTotal = filteredAssets.reduce((s, a) => s + a.grossValue, 0);
+
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -208,7 +252,7 @@ export default function AssetsPage() {
                 <div className="flex items-center gap-3">
                     <YearSelector />
                     <button
-                        onClick={() => setShowForm(true)}
+                        onClick={openFormForTab}
                         className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-xs font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all active:scale-[0.98]"
                     >
                         <Plus size={14} />
@@ -217,22 +261,44 @@ export default function AssetsPage() {
                 </div>
             </div>
 
-            {/* Asset list */}
-            <div className="space-y-3">
-                {yearAssets.map((asset) => {
-                    const Icon = typeIcons[asset.type] || DollarSign;
-                    const gradientMap: Record<string, string> = {
-                        Cash: 'from-emerald-400 to-emerald-600',
-                        Bank: 'from-blue-400 to-blue-600',
-                        Stock: 'from-purple-400 to-purple-600',
-                        Crypto: 'from-amber-400 to-amber-600',
-                        Retirement: 'from-red-400 to-red-600',
-                        Gold: 'from-yellow-400 to-yellow-600',
-                        Silver: 'from-slate-300 to-slate-500',
-                        Merchandise: 'from-pink-400 to-pink-600',
-                        Debt_Receivable: 'from-cyan-400 to-cyan-600',
-                    };
+            {/* Section Tabs */}
+            <div className="flex gap-2">
+                {ASSET_TABS.map((tab) => {
+                    const isActive = activeTab === tab.key;
+                    const count = tabCounts[tab.key];
+                    return (
+                        <button
+                            key={tab.key}
+                            onClick={() => handleTabSwitch(tab.key)}
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all border ${isActive
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-sm shadow-emerald-500/5'
+                                : 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:bg-white/[0.06] hover:text-white/70'
+                                }`}
+                        >
+                            <tab.icon size={14} />
+                            {tab.label}
+                            {count > 0 && (
+                                <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${isActive ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/[0.06] text-white/30'}`}>
+                                    {count}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </div>
 
+            {/* Tab total */}
+            {filteredAssets.length > 0 && (
+                <div className="rounded-xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] px-5 py-3 flex items-center justify-between text-xs">
+                    <span className="text-white/30">{activeTab} Total</span>
+                    <span className="text-white/80 font-semibold">{formatCurrency(tabTotal)}</span>
+                </div>
+            )}
+
+            {/* Asset list for active tab */}
+            <div className="space-y-3">
+                {filteredAssets.map((asset) => {
+                    const Icon = typeIcons[asset.type] || DollarSign;
                     return (
                         <div
                             key={asset.id}
@@ -244,7 +310,6 @@ export default function AssetsPage() {
                                 >
                                     <Icon size={16} className="text-white" />
                                 </div>
-
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                                         <p className="text-sm font-semibold text-white truncate">{asset.name}</p>
@@ -252,9 +317,7 @@ export default function AssetsPage() {
                                             {typeLabels[asset.type]}
                                         </span>
                                         {asset.isETF && (
-                                            <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-[10px] text-blue-400 font-medium">
-                                                ETF
-                                            </span>
+                                            <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-[10px] text-blue-400 font-medium">ETF</span>
                                         )}
                                         {asset.weightGrams && !asset.isETF && (
                                             <span className="px-2 py-0.5 rounded-md bg-yellow-500/10 text-[10px] text-yellow-400 font-medium">
@@ -263,24 +326,16 @@ export default function AssetsPage() {
                                             </span>
                                         )}
                                         {asset.currency !== settings.baseCurrency && (
-                                            <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-[10px] text-blue-400 font-medium">
-                                                {asset.currency}
-                                            </span>
+                                            <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-[10px] text-blue-400 font-medium">{asset.currency}</span>
                                         )}
                                         {asset.isJewelry && (
-                                            <span className="px-2 py-0.5 rounded-md bg-yellow-500/10 text-[10px] text-yellow-400 font-medium">
-                                                Jewelry
-                                            </span>
+                                            <span className="px-2 py-0.5 rounded-md bg-yellow-500/10 text-[10px] text-yellow-400 font-medium">Jewelry</span>
                                         )}
                                         {asset.retirementType === 'Mandatory' && (
-                                            <span className="px-2 py-0.5 rounded-md bg-orange-500/10 text-[10px] text-orange-400 font-medium">
-                                                Mandatory (exempt)
-                                            </span>
+                                            <span className="px-2 py-0.5 rounded-md bg-orange-500/10 text-[10px] text-orange-400 font-medium">Mandatory (exempt)</span>
                                         )}
                                         {asset.cryptoIntent === 'Platform_Token' && (
-                                            <span className="px-2 py-0.5 rounded-md bg-orange-500/10 text-[10px] text-orange-400 font-medium">
-                                                Platform Token (exempt)
-                                            </span>
+                                            <span className="px-2 py-0.5 rounded-md bg-orange-500/10 text-[10px] text-orange-400 font-medium">Platform Token (exempt)</span>
                                         )}
                                     </div>
                                     <p className="text-xs text-white/30">
@@ -290,7 +345,6 @@ export default function AssetsPage() {
                                         {asset.debtStrength && ` · ${asset.debtStrength} debt`}
                                     </p>
                                 </div>
-
                                 <button
                                     onClick={() => handleDelete(asset.id)}
                                     className="p-2 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
@@ -304,16 +358,18 @@ export default function AssetsPage() {
             </div>
 
             {/* Empty state */}
-            {yearAssets.length === 0 && (
+            {filteredAssets.length === 0 && (
                 <div className="rounded-2xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] border-dashed p-12 text-center">
                     <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
-                        <DollarSign size={24} className="text-emerald-400" />
+                        <activeTabConfig.icon size={24} className="text-emerald-400" />
                     </div>
                     <h3 className="text-base font-semibold text-white/70 mb-2">
-                        No assets for {selectedYear}
+                        No {activeTab.toLowerCase()} assets for {selectedYear}
                     </h3>
                     <p className="text-sm text-white/30 mb-4 max-w-sm mx-auto">
-                        Add cash, bank accounts, gold, silver, stocks, crypto, retirement accounts, merchandise, or debts owed to you.
+                        {activeTab === 'Money' && 'Add cash, bank accounts, or debts owed to you.'}
+                        {activeTab === 'Stocks' && 'Add stocks, cryptocurrency, retirement accounts, or merchandise.'}
+                        {activeTab === 'Gold & Silver' && 'Add physical gold, silver, or precious metal ETFs.'}
                     </p>
                 </div>
             )}
@@ -338,30 +394,24 @@ export default function AssetsPage() {
                 </div>
             )}
 
-            {/* Add form modal */}
+            {/* ─── Add Form Modal ─────────────────────────────────── */}
             {showForm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div
-                        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                        onClick={() => setShowForm(false)}
-                    />
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowForm(false)} />
                     <div className="relative w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-[#1a1d27] border border-white/[0.08] shadow-2xl p-6">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-base font-semibold text-white">Add Asset</h2>
-                            <button
-                                onClick={() => setShowForm(false)}
-                                className="p-2 rounded-lg hover:bg-white/10 text-white/40"
-                            >
+                            <h2 className="text-base font-semibold text-white">Add {activeTab} Asset</h2>
+                            <button onClick={() => setShowForm(false)} className="p-2 rounded-lg hover:bg-white/10 text-white/40">
                                 <X size={18} />
                             </button>
                         </div>
 
                         <div className="space-y-4">
-                            {/* Type */}
+                            {/* Type — only show types for current tab */}
                             <div>
                                 <label className="block text-xs text-white/40 mb-2">Type</label>
                                 <div className="grid grid-cols-3 gap-2">
-                                    {(Object.keys(typeLabels) as AssetType[]).map((t) => (
+                                    {activeTabConfig.types.map((t) => (
                                         <button
                                             key={t}
                                             type="button"
@@ -392,18 +442,11 @@ export default function AssetsPage() {
                             {/* ═══ GOLD/SILVER: ETF Toggle + Weight/Value Input ═══ */}
                             {isGoldSilver && (
                                 <div className="space-y-4">
-                                    {/* ETF toggle */}
                                     <div className="flex items-center gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => setIsETF(!isETF)}
-                                            className={`w-10 h-6 rounded-full transition-all relative ${isETF ? 'bg-blue-500' : 'bg-white/10'
-                                                }`}
+                                        <button type="button" onClick={() => setIsETF(!isETF)}
+                                            className={`w-10 h-6 rounded-full transition-all relative ${isETF ? 'bg-blue-500' : 'bg-white/10'}`}
                                         >
-                                            <span
-                                                className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isETF ? 'left-5' : 'left-1'
-                                                    }`}
-                                            />
+                                            <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isETF ? 'left-5' : 'left-1'}`} />
                                         </button>
                                         <label className="text-xs text-white/50">
                                             This is a {newType} ETF (enter dollar value directly)
@@ -411,72 +454,45 @@ export default function AssetsPage() {
                                     </div>
 
                                     {isETF ? (
-                                        /* ETF: just enter dollar value + currency */
                                         <>
                                             <div>
                                                 <label className="block text-xs text-white/40 mb-2">Currency</label>
                                                 <div className="grid grid-cols-4 gap-2">
                                                     {CURRENCIES.map((cur) => (
-                                                        <button
-                                                            key={cur}
-                                                            type="button"
-                                                            onClick={() => setNewCurrency(cur)}
+                                                        <button key={cur} type="button" onClick={() => setNewCurrency(cur)}
                                                             className={`px-2 py-2 rounded-xl text-[10px] font-medium transition-all ${newCurrency === cur
                                                                 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                                                                : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'
-                                                                }`}
-                                                        >
-                                                            {cur}
-                                                        </button>
+                                                                : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'}`}
+                                                        >{cur}</button>
                                                     ))}
                                                 </div>
                                             </div>
                                             <div>
-                                                <label className="block text-xs text-white/40 mb-2">
-                                                    ETF Value ({newCurrency})
-                                                </label>
-                                                <input
-                                                    type="number"
-                                                    value={newValue}
-                                                    onChange={(e) => setNewValue(e.target.value)}
-                                                    placeholder="0"
+                                                <label className="block text-xs text-white/40 mb-2">ETF Value ({newCurrency})</label>
+                                                <input type="number" value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="0"
                                                     className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder-white/20 text-sm focus:outline-none focus:border-emerald-500/40 transition-all"
                                                 />
                                             </div>
                                         </>
                                     ) : (
-                                        /* Physical: enter weight + purity, value auto-calculated */
                                         <>
-                                            {/* Weight unit */}
                                             <div>
                                                 <label className="block text-xs text-white/40 mb-2">Weight Unit</label>
                                                 <div className="grid grid-cols-3 gap-2">
                                                     {WEIGHT_UNITS.map((u) => (
-                                                        <button
-                                                            key={u.value}
-                                                            type="button"
-                                                            onClick={() => setWeightUnit(u.value)}
+                                                        <button key={u.value} type="button" onClick={() => setWeightUnit(u.value)}
                                                             className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${weightUnit === u.value
                                                                 ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'
-                                                                : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'
-                                                                }`}
-                                                        >
-                                                            {u.label}
-                                                        </button>
+                                                                : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'}`}
+                                                        >{u.label}</button>
                                                     ))}
                                                 </div>
                                             </div>
-
-                                            {/* Weight input */}
                                             <div>
                                                 <label className="block text-xs text-white/40 mb-2">
                                                     Weight ({WEIGHT_UNITS.find((u) => u.value === weightUnit)?.label || weightUnit})
                                                 </label>
-                                                <input
-                                                    type="number"
-                                                    value={weightInput}
-                                                    onChange={(e) => setWeightInput(e.target.value)}
-                                                    placeholder="0"
+                                                <input type="number" value={weightInput} onChange={(e) => setWeightInput(e.target.value)} placeholder="0"
                                                     className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder-white/20 text-sm focus:outline-none focus:border-yellow-500/40 transition-all"
                                                 />
                                                 {weightInput && (
@@ -485,30 +501,20 @@ export default function AssetsPage() {
                                                     </p>
                                                 )}
                                             </div>
-
-                                            {/* Gold purity */}
                                             {newType === 'Gold' && (
                                                 <div>
                                                     <label className="block text-xs text-white/40 mb-2">Purity</label>
                                                     <div className="grid grid-cols-5 gap-2">
                                                         {GOLD_PURITIES.map((p) => (
-                                                            <button
-                                                                key={p.value}
-                                                                type="button"
-                                                                onClick={() => setGoldPurity(p.value)}
+                                                            <button key={p.value} type="button" onClick={() => setGoldPurity(p.value)}
                                                                 className={`px-2 py-2 rounded-xl text-[10px] font-medium transition-all ${goldPurity === p.value
                                                                     ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'
-                                                                    : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'
-                                                                    }`}
-                                                            >
-                                                                {p.label}
-                                                            </button>
+                                                                    : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'}`}
+                                                            >{p.label}</button>
                                                         ))}
                                                     </div>
                                                 </div>
                                             )}
-
-                                            {/* Live computed value */}
                                             {computedValue !== null && (
                                                 <div className="rounded-xl bg-yellow-500/5 border border-yellow-500/15 p-4">
                                                     <div className="flex items-center gap-2 mb-1">
@@ -529,16 +535,10 @@ export default function AssetsPage() {
 
                                     {/* Jewelry toggle */}
                                     <div className="flex items-center gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => setIsJewelry(!isJewelry)}
-                                            className={`w-10 h-6 rounded-full transition-all relative ${isJewelry ? 'bg-yellow-500' : 'bg-white/10'
-                                                }`}
+                                        <button type="button" onClick={() => setIsJewelry(!isJewelry)}
+                                            className={`w-10 h-6 rounded-full transition-all relative ${isJewelry ? 'bg-yellow-500' : 'bg-white/10'}`}
                                         >
-                                            <span
-                                                className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isJewelry ? 'left-5' : 'left-1'
-                                                    }`}
-                                            />
+                                            <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isJewelry ? 'left-5' : 'left-1'}`} />
                                         </button>
                                         <label className="text-xs text-white/50">
                                             This is jewelry
@@ -551,36 +551,21 @@ export default function AssetsPage() {
                             {/* ═══ NON GOLD/SILVER: Currency + Value ═══ */}
                             {!isGoldSilver && (
                                 <>
-                                    {/* Currency */}
                                     <div>
                                         <label className="block text-xs text-white/40 mb-2">Currency</label>
                                         <div className="grid grid-cols-4 gap-2">
                                             {CURRENCIES.map((cur) => (
-                                                <button
-                                                    key={cur}
-                                                    type="button"
-                                                    onClick={() => setNewCurrency(cur)}
+                                                <button key={cur} type="button" onClick={() => setNewCurrency(cur)}
                                                     className={`px-2 py-2 rounded-xl text-[10px] font-medium transition-all ${newCurrency === cur
                                                         ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                                                        : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'
-                                                        }`}
-                                                >
-                                                    {cur}
-                                                </button>
+                                                        : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'}`}
+                                                >{cur}</button>
                                             ))}
                                         </div>
                                     </div>
-
-                                    {/* Value */}
                                     <div>
-                                        <label className="block text-xs text-white/40 mb-2">
-                                            Value ({newCurrency})
-                                        </label>
-                                        <input
-                                            type="number"
-                                            value={newValue}
-                                            onChange={(e) => setNewValue(e.target.value)}
-                                            placeholder="0"
+                                        <label className="block text-xs text-white/40 mb-2">Value ({newCurrency})</label>
+                                        <input type="number" value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="0"
                                             className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder-white/20 text-sm focus:outline-none focus:border-emerald-500/40 transition-all"
                                         />
                                     </div>
@@ -593,34 +578,20 @@ export default function AssetsPage() {
                                     <label className="block text-xs text-white/40">Holding Type</label>
                                     <div className="grid grid-cols-2 gap-2">
                                         {(['Short_Term', 'Long_Term'] as StockHoldingType[]).map((t) => (
-                                            <button
-                                                key={t}
-                                                type="button"
-                                                onClick={() => setStockHoldingType(t)}
+                                            <button key={t} type="button" onClick={() => setStockHoldingType(t)}
                                                 className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${stockHoldingType === t
                                                     ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
-                                                    : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'
-                                                    }`}
-                                            >
-                                                {t === 'Short_Term' ? 'Short-term (100%)' : 'Long-term (partial)'}
-                                            </button>
+                                                    : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'}`}
+                                            >{t === 'Short_Term' ? 'Short-term (100%)' : 'Long-term (partial)'}</button>
                                         ))}
                                     </div>
                                     {stockHoldingType === 'Long_Term' && (
                                         <div>
-                                            <label className="block text-xs text-white/40 mb-2">
-                                                Zakatable Assets % of Company
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={zakatableAssetPercent}
-                                                onChange={(e) => setZakatableAssetPercent(e.target.value)}
-                                                placeholder="40"
+                                            <label className="block text-xs text-white/40 mb-2">Zakatable Assets % of Company</label>
+                                            <input type="number" value={zakatableAssetPercent} onChange={(e) => setZakatableAssetPercent(e.target.value)} placeholder="40"
                                                 className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder-white/20 text-sm focus:outline-none focus:border-purple-500/40 transition-all"
                                             />
-                                            <p className="text-[10px] text-white/20 mt-1">
-                                                Only cash, raw materials, inventory, receivables are zakatable. Check the company&apos;s annual report.
-                                            </p>
+                                            <p className="text-[10px] text-white/20 mt-1">Only cash, raw materials, inventory, receivables are zakatable. Check the company&apos;s annual report.</p>
                                         </div>
                                     )}
                                 </div>
@@ -631,26 +602,16 @@ export default function AssetsPage() {
                                 <div className="space-y-3">
                                     <label className="block text-xs text-white/40">Retirement Type</label>
                                     <div className="grid grid-cols-2 gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setRetirementType('Mandatory')}
+                                        <button type="button" onClick={() => setRetirementType('Mandatory')}
                                             className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${retirementType === 'Mandatory'
                                                 ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30'
-                                                : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'
-                                                }`}
-                                        >
-                                            Mandatory (pension)
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setRetirementType('Voluntary')}
+                                                : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'}`}
+                                        >Mandatory (pension)</button>
+                                        <button type="button" onClick={() => setRetirementType('Voluntary')}
                                             className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${retirementType === 'Voluntary'
                                                 ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
-                                                : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'
-                                                }`}
-                                        >
-                                            Voluntary (401k/IRA)
-                                        </button>
+                                                : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'}`}
+                                        >Voluntary (401k/IRA)</button>
                                     </div>
                                     {retirementType === 'Mandatory' && (
                                         <p className="text-[10px] text-orange-300/60 bg-orange-500/5 p-2 rounded-lg">
@@ -659,14 +620,8 @@ export default function AssetsPage() {
                                     )}
                                     {retirementType === 'Voluntary' && (
                                         <div>
-                                            <label className="block text-xs text-white/40 mb-2">
-                                                Zakatable Assets % (like long-term stock)
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={zakatableAssetPercent}
-                                                onChange={(e) => setZakatableAssetPercent(e.target.value)}
-                                                placeholder="40"
+                                            <label className="block text-xs text-white/40 mb-2">Zakatable Assets % (like long-term stock)</label>
+                                            <input type="number" value={zakatableAssetPercent} onChange={(e) => setZakatableAssetPercent(e.target.value)} placeholder="40"
                                                 className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder-white/20 text-sm focus:outline-none focus:border-blue-500/40 transition-all"
                                             />
                                         </div>
@@ -680,17 +635,11 @@ export default function AssetsPage() {
                                     <label className="block text-xs text-white/40">Intent</label>
                                     <div className="grid grid-cols-3 gap-2">
                                         {(['Currency', 'Resale', 'Platform_Token'] as CryptoIntent[]).map((i) => (
-                                            <button
-                                                key={i}
-                                                type="button"
-                                                onClick={() => setCryptoIntent(i)}
+                                            <button key={i} type="button" onClick={() => setCryptoIntent(i)}
                                                 className={`px-2 py-2 rounded-xl text-[10px] font-medium transition-all ${cryptoIntent === i
                                                     ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                                                    : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'
-                                                    }`}
-                                            >
-                                                {i === 'Platform_Token' ? 'Platform' : i}
-                                            </button>
+                                                    : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'}`}
+                                            >{i === 'Platform_Token' ? 'Platform' : i}</button>
                                         ))}
                                     </div>
                                     {cryptoIntent === 'Platform_Token' && (
@@ -707,17 +656,11 @@ export default function AssetsPage() {
                                     <label className="block text-xs text-white/40">Debt Strength</label>
                                     <div className="grid grid-cols-3 gap-2">
                                         {(['Strong', 'Intermediate', 'Weak'] as const).map((s) => (
-                                            <button
-                                                key={s}
-                                                type="button"
-                                                onClick={() => setDebtStrength(s)}
+                                            <button key={s} type="button" onClick={() => setDebtStrength(s)}
                                                 className={`px-2 py-2 rounded-xl text-[10px] font-medium transition-all ${debtStrength === s
                                                     ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
-                                                    : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'
-                                                    }`}
-                                            >
-                                                {s}
-                                            </button>
+                                                    : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'}`}
+                                            >{s}</button>
                                         ))}
                                     </div>
                                     <p className="text-[10px] text-white/20">
@@ -728,17 +671,11 @@ export default function AssetsPage() {
                                 </div>
                             )}
 
-                            {/* Valuation % (advanced for non-gold/silver/retirement/crypto/debt) */}
+                            {/* Valuation % */}
                             {!isGoldSilver && newType !== 'Retirement' && newType !== 'Crypto' && newType !== 'Debt_Receivable' && (
                                 <div>
-                                    <label className="block text-xs text-white/40 mb-2">
-                                        Zakatable % (default 100%)
-                                    </label>
-                                    <input
-                                        type="number"
-                                        value={newValuation}
-                                        onChange={(e) => setNewValuation(e.target.value)}
-                                        placeholder="100"
+                                    <label className="block text-xs text-white/40 mb-2">Zakatable % (default 100%)</label>
+                                    <input type="number" value={newValuation} onChange={(e) => setNewValuation(e.target.value)} placeholder="100"
                                         className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder-white/20 text-sm focus:outline-none focus:border-emerald-500/40 transition-all"
                                     />
                                 </div>

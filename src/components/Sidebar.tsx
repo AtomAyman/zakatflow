@@ -14,6 +14,7 @@ import {
     X,
 } from 'lucide-react';
 import { useState } from 'react';
+import Logo from '@/components/Logo';
 
 const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -55,9 +56,7 @@ export default function Sidebar() {
                     {/* Logo */}
                     <div className="px-6 py-8">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                                <span className="text-white font-bold text-lg">Z</span>
-                            </div>
+                            <Logo size={40} />
                             <div>
                                 <h1 className="text-lg font-bold bg-gradient-to-r from-emerald-400 to-amber-400 bg-clip-text text-transparent">
                                     ZakatFlow
@@ -81,8 +80,8 @@ export default function Sidebar() {
                                     href={item.href}
                                     onClick={() => setMobileOpen(false)}
                                     className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${isActive
-                                            ? 'bg-emerald-500/15 text-emerald-400 shadow-sm shadow-emerald-500/5'
-                                            : 'text-white/50 hover:text-white/80 hover:bg-white/[0.04]'
+                                        ? 'bg-emerald-500/15 text-emerald-400 shadow-sm shadow-emerald-500/5'
+                                        : 'text-white/50 hover:text-white/80 hover:bg-white/[0.04]'
                                         }`}
                                 >
                                     <item.icon size={18} className={isActive ? 'text-emerald-400' : ''} />

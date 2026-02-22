@@ -4,6 +4,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
+import Logo from '@/components/Logo';
 import { useZakatStore } from '@/lib/store';
 
 export default function DashboardLayout({
@@ -54,8 +55,8 @@ export default function DashboardLayout({
         return (
             <div className="min-h-screen flex items-center justify-center mesh-gradient">
                 <div className="text-center">
-                    <div className="w-12 h-12 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 animate-pulse">
-                        <span className="text-white font-bold text-xl">Z</span>
+                    <div className="animate-pulse">
+                        <Logo size={48} />
                     </div>
                     <p className="text-sm text-white/40">
                         {initStatus === 'loading'

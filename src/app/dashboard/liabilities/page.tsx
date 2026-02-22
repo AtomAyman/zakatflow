@@ -6,7 +6,6 @@ import {
     Plus,
     Trash2,
     Home,
-    GraduationCap,
     CreditCard,
     X,
     CircleDollarSign,
@@ -14,10 +13,22 @@ import {
     Heart,
     Receipt,
     Building2,
+    Wallet,
+    Landmark,
+    GraduationCap,
 } from 'lucide-react';
 import { type Liability, type LiabilityType, CURRENCIES } from '@/lib/types';
 import { v4 as uuid } from 'uuid';
 import YearSelector from '@/components/YearSelector';
+
+// ─── Tab & Type Groupings ─────────────────────────────────
+
+type LiabilityTab = 'Bills' | 'Loans';
+
+const LIABILITY_TABS: { key: LiabilityTab; label: string; icon: typeof CreditCard; types: LiabilityType[] }[] = [
+    { key: 'Bills', label: 'Bills & Cards', icon: CreditCard, types: ['Credit_Balance', 'Utility_Bills', 'Medical_Bills'] },
+    { key: 'Loans', label: 'Loans & Debts', icon: Landmark, types: ['Mortgage', 'Student_Loan', 'Personal_Loan', 'Commercial_Loan', 'Dowry', 'Salary_Service_Fee', 'Other'] },
+];
 
 const typeIcons: Record<LiabilityType, typeof Home> = {
     Mortgage: Home,
@@ -25,6 +36,7 @@ const typeIcons: Record<LiabilityType, typeof Home> = {
     Medical_Bills: Heart,
     Credit_Balance: CreditCard,
     Personal_Loan: CircleDollarSign,
+    Student_Loan: GraduationCap,
     Commercial_Loan: Building2,
     Dowry: Heart,
     Salary_Service_Fee: Receipt,
@@ -37,18 +49,39 @@ const typeLabels: Record<LiabilityType, string> = {
     Medical_Bills: 'Medical Bills',
     Credit_Balance: 'Credit Balance',
     Personal_Loan: 'Personal Loan',
+    Student_Loan: 'Student Loan',
     Commercial_Loan: 'Commercial Loan',
     Dowry: 'Dowry (Mahr)',
     Salary_Service_Fee: 'Salary / Fees',
     Other: 'Other',
 };
 
+const gradientMap: Record<string, string> = {
+    Credit_Balance: 'from-red-400 to-red-600',
+    Utility_Bills: 'from-yellow-400 to-yellow-600',
+    Medical_Bills: 'from-pink-400 to-pink-600',
+    Mortgage: 'from-blue-400 to-blue-600',
+    Personal_Loan: 'from-purple-400 to-purple-600',
+    Student_Loan: 'from-teal-400 to-teal-600',
+    Commercial_Loan: 'from-indigo-400 to-indigo-600',
+    Dowry: 'from-rose-400 to-rose-600',
+    Salary_Service_Fee: 'from-orange-400 to-orange-600',
+    Other: 'from-slate-400 to-slate-600',
+};
+
+// ─── Component ────────────────────────────────────────────
+
 export default function LiabilitiesPage() {
     const { addLiability, removeLiability, settings, dashboard, selectedYear, getLiabilitiesForYear } =
         useZakatStore();
     const yearLiabilities = getLiabilitiesForYear(selectedYear);
+    const [activeTab, setActiveTab] = useState<LiabilityTab>('Bills');
     const [showForm, setShowForm] = useState(false);
-    const [newType, setNewType] = useState<LiabilityType>('Mortgage');
+
+    const activeTabConfig = LIABILITY_TABS.find((t) => t.key === activeTab)!;
+    const filteredLiabilities = yearLiabilities.filter((l) => activeTabConfig.types.includes(l.type));
+
+    const [newType, setNewType] = useState<LiabilityType>(activeTabConfig.types[0]);
     const [newName, setNewName] = useState('');
     const [newTotal, setNewTotal] = useState('');
     const [newMonthly, setNewMonthly] = useState('');
@@ -61,6 +94,22 @@ export default function LiabilitiesPage() {
             currency: settings.baseCurrency || 'USD',
             maximumFractionDigits: 0,
         }).format(n);
+
+    const handleTabSwitch = (tab: LiabilityTab) => {
+        setActiveTab(tab);
+        const tabConfig = LIABILITY_TABS.find((t) => t.key === tab)!;
+        setNewType(tabConfig.types[0]);
+        setShowForm(false);
+    };
+
+    const openFormForTab = () => {
+        setNewType(activeTabConfig.types[0]);
+        setNewName('');
+        setNewTotal('');
+        setNewMonthly('');
+        setNewIsImmediate(false);
+        setShowForm(true);
+    };
 
     const handleAdd = () => {
         const liability: Liability = {
@@ -75,8 +124,6 @@ export default function LiabilitiesPage() {
         };
 
         addLiability(liability);
-
-        // Save to sheet
         fetch('/api/sheets/liabilities', {
             method: 'POST',
             headers: {
@@ -105,6 +152,13 @@ export default function LiabilitiesPage() {
         }).catch(console.error);
     };
 
+    // Tab counts & totals
+    const tabCounts = LIABILITY_TABS.reduce((acc, tab) => {
+        acc[tab.key] = yearLiabilities.filter((l) => tab.types.includes(l.type)).length;
+        return acc;
+    }, {} as Record<LiabilityTab, number>);
+
+    const tabTotal = filteredLiabilities.reduce((s, l) => s + l.totalAmount, 0);
     const totalDebt = yearLiabilities.reduce((s, l) => s + l.totalAmount, 0);
     const totalMonthly = yearLiabilities.reduce((s, l) => s + l.monthlyPayment, 0);
 
@@ -121,13 +175,39 @@ export default function LiabilitiesPage() {
                 <div className="flex items-center gap-3">
                     <YearSelector />
                     <button
-                        onClick={() => setShowForm(true)}
+                        onClick={openFormForTab}
                         className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-xs font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all active:scale-[0.98]"
                     >
                         <Plus size={14} />
                         Add Debt
                     </button>
                 </div>
+            </div>
+
+            {/* Section Tabs */}
+            <div className="flex gap-2">
+                {LIABILITY_TABS.map((tab) => {
+                    const isActive = activeTab === tab.key;
+                    const count = tabCounts[tab.key];
+                    return (
+                        <button
+                            key={tab.key}
+                            onClick={() => handleTabSwitch(tab.key)}
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all border ${isActive
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-sm shadow-emerald-500/5'
+                                : 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:bg-white/[0.06] hover:text-white/70'
+                                }`}
+                        >
+                            <tab.icon size={14} />
+                            {tab.label}
+                            {count > 0 && (
+                                <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${isActive ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/[0.06] text-white/30'}`}>
+                                    {count}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
             </div>
 
             {/* Madhab notice */}
@@ -143,26 +223,30 @@ export default function LiabilitiesPage() {
                 </p>
             </div>
 
-            {/* Liabilities list */}
-            <div className="space-y-3">
-                {yearLiabilities.map((liability) => {
-                    const Icon = typeIcons[liability.type] || CircleDollarSign;
+            {/* Tab total */}
+            {filteredLiabilities.length > 0 && (
+                <div className="rounded-xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] px-5 py-3 flex items-center justify-between text-xs">
+                    <span className="text-white/30">{activeTabConfig.label} Total</span>
+                    <span className="text-white/80 font-semibold">{formatCurrency(tabTotal)}</span>
+                </div>
+            )}
 
+            {/* Liabilities list for active tab */}
+            <div className="space-y-3">
+                {filteredLiabilities.map((liability) => {
+                    const Icon = typeIcons[liability.type] || CircleDollarSign;
                     return (
                         <div
                             key={liability.id}
                             className="group rounded-2xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] p-5 hover:border-white/[0.12] transition-all"
                         >
                             <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center shadow-lg flex-shrink-0">
+                                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradientMap[liability.type] || 'from-red-400 to-red-600'} flex items-center justify-center shadow-lg flex-shrink-0`}>
                                     <Icon size={16} className="text-white" />
                                 </div>
-
                                 <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-0.5">
-                                        <p className="text-sm font-semibold text-white truncate">
-                                            {liability.name}
-                                        </p>
+                                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                        <p className="text-sm font-semibold text-white truncate">{liability.name}</p>
                                         <span className="px-2 py-0.5 rounded-md bg-white/[0.06] text-[10px] text-white/40 font-medium">
                                             {typeLabels[liability.type]}
                                         </span>
@@ -182,7 +266,6 @@ export default function LiabilitiesPage() {
                                         <span>Monthly: {liability.currency} {liability.monthlyPayment.toLocaleString()}</span>
                                     </div>
                                 </div>
-
                                 <button
                                     onClick={() => handleDelete(liability.id)}
                                     className="p-2 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
@@ -196,16 +279,17 @@ export default function LiabilitiesPage() {
             </div>
 
             {/* Empty state */}
-            {yearLiabilities.length === 0 && (
+            {filteredLiabilities.length === 0 && (
                 <div className="rounded-2xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] border-dashed p-12 text-center">
                     <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-blue-500/10 flex items-center justify-center">
-                        <CreditCard size={24} className="text-blue-400" />
+                        <activeTabConfig.icon size={24} className="text-blue-400" />
                     </div>
                     <h3 className="text-base font-semibold text-white/70 mb-2">
-                        No debts for {selectedYear}
+                        No {activeTabConfig.label.toLowerCase()} for {selectedYear}
                     </h3>
                     <p className="text-sm text-white/30 mb-4 max-w-sm mx-auto">
-                        Add mortgages, utility bills, credit balances, personal loans, or other debts for Madhab-specific deductions.
+                        {activeTab === 'Bills' && 'Add credit card balances, utility bills, or medical bills.'}
+                        {activeTab === 'Loans' && 'Add mortgages, personal loans, commercial loans, or other debts.'}
                     </p>
                 </div>
             )}
@@ -215,59 +299,39 @@ export default function LiabilitiesPage() {
                 <div className="rounded-2xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] p-5">
                     <div className="grid grid-cols-3 gap-4 text-center">
                         <div>
-                            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">
-                                Total Debt
-                            </p>
-                            <p className="text-lg font-bold text-white">
-                                {totalDebt.toLocaleString()}
-                            </p>
+                            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Total Debt</p>
+                            <p className="text-lg font-bold text-white">{formatCurrency(totalDebt)}</p>
                         </div>
                         <div>
-                            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">
-                                Monthly Payments
-                            </p>
-                            <p className="text-lg font-bold text-white">
-                                {totalMonthly.toLocaleString()}
-                            </p>
+                            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Monthly Payments</p>
+                            <p className="text-lg font-bold text-white">{formatCurrency(totalMonthly)}</p>
                         </div>
                         <div>
-                            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">
-                                Zakat Deduction
-                            </p>
-                            <p className="text-lg font-bold text-emerald-400">
-                                {formatCurrency(dashboard.liabilityDeduction)}
-                            </p>
+                            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Zakat Deduction</p>
+                            <p className="text-lg font-bold text-emerald-400">{formatCurrency(dashboard.liabilityDeduction)}</p>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Add form modal */}
+            {/* ─── Add Form Modal ─────────────────────────────────── */}
             {showForm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div
-                        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                        onClick={() => setShowForm(false)}
-                    />
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowForm(false)} />
                     <div className="relative w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-[#1a1d27] border border-white/[0.08] shadow-2xl p-6">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-base font-semibold text-white">
-                                Add Liability
-                            </h2>
-                            <button
-                                onClick={() => setShowForm(false)}
-                                className="p-2 rounded-lg hover:bg-white/10 text-white/40"
-                            >
+                            <h2 className="text-base font-semibold text-white">Add {activeTabConfig.label}</h2>
+                            <button onClick={() => setShowForm(false)} className="p-2 rounded-lg hover:bg-white/10 text-white/40">
                                 <X size={18} />
                             </button>
                         </div>
 
                         <div className="space-y-4">
-                            {/* Type */}
+                            {/* Type — only show types for current tab */}
                             <div>
                                 <label className="block text-xs text-white/40 mb-2">Type</label>
                                 <div className="grid grid-cols-3 gap-2">
-                                    {(Object.keys(typeLabels) as LiabilityType[]).map((t) => (
+                                    {activeTabConfig.types.map((t) => (
                                         <button
                                             key={t}
                                             type="button"
@@ -317,9 +381,7 @@ export default function LiabilitiesPage() {
 
                             {/* Total */}
                             <div>
-                                <label className="block text-xs text-white/40 mb-2">
-                                    Total Amount
-                                </label>
+                                <label className="block text-xs text-white/40 mb-2">Total Amount</label>
                                 <input
                                     type="number"
                                     value={newTotal}
@@ -331,9 +393,7 @@ export default function LiabilitiesPage() {
 
                             {/* Monthly */}
                             <div>
-                                <label className="block text-xs text-white/40 mb-2">
-                                    Monthly Payment
-                                </label>
+                                <label className="block text-xs text-white/40 mb-2">Monthly Payment</label>
                                 <input
                                     type="number"
                                     value={newMonthly}
@@ -348,13 +408,9 @@ export default function LiabilitiesPage() {
                                 <button
                                     type="button"
                                     onClick={() => setNewIsImmediate(!newIsImmediate)}
-                                    className={`w-10 h-6 rounded-full transition-all relative ${newIsImmediate ? 'bg-emerald-500' : 'bg-white/10'
-                                        }`}
+                                    className={`w-10 h-6 rounded-full transition-all relative ${newIsImmediate ? 'bg-emerald-500' : 'bg-white/10'}`}
                                 >
-                                    <span
-                                        className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${newIsImmediate ? 'left-5' : 'left-1'
-                                            }`}
-                                    />
+                                    <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${newIsImmediate ? 'left-5' : 'left-1'}`} />
                                 </button>
                                 <label className="text-xs text-white/50">
                                     This is an immediate/short-term debt (due now)

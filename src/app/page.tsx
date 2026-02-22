@@ -13,6 +13,7 @@ import {
   TrendingUp,
   Coins,
 } from 'lucide-react';
+import Logo from '@/components/Logo';
 
 export default function LandingPage() {
   const { data: session, status } = useSession();
@@ -73,9 +74,7 @@ export default function LandingPage() {
       <header className="relative z-10 px-6 py-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <span className="text-white font-bold text-lg">Z</span>
-            </div>
+            <Logo size={40} />
             <span className="text-lg font-bold bg-gradient-to-r from-emerald-400 to-amber-400 bg-clip-text text-transparent">
               ZakatFlow
             </span>

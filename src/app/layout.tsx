@@ -13,6 +13,9 @@ export const metadata: Metadata = {
   description:
     "Calculate your Zakat with precision using Islamic fiqh rules, retirement deductions, and live market data. Sheet-backed for full transparency.",
   keywords: ["zakat", "calculator", "islamic", "finance", "halal"],
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

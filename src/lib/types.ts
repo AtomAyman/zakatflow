@@ -33,6 +33,7 @@ export type LiabilityType =
   | 'Medical_Bills'
   | 'Credit_Balance'
   | 'Personal_Loan'
+  | 'Student_Loan'
   | 'Commercial_Loan'
   | 'Dowry'
   | 'Salary_Service_Fee'
