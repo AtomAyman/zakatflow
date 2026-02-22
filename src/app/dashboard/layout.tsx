@@ -14,7 +14,7 @@ export default function DashboardLayout({
 }) {
     const { data: session, status } = useSession();
     const router = useRouter();
-    const { setSpreadsheetId, setInitialized, fetchAllData, spreadsheetId } = useZakatStore();
+    const { setSpreadsheetId, setBackupSpreadsheetId, setInitialized, fetchAllData, spreadsheetId } = useZakatStore();
     const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'ready'>('idle');
 
     useEffect(() => {
@@ -33,6 +33,9 @@ export default function DashboardLayout({
                 .then((data) => {
                     if (data.data?.spreadsheetId) {
                         setSpreadsheetId(data.data.spreadsheetId);
+                        if (data.data.backupSpreadsheetId) {
+                            setBackupSpreadsheetId(data.data.backupSpreadsheetId);
+                        }
                         setInitStatus('ready');
                     }
                 })

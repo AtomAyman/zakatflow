@@ -7,11 +7,11 @@ import {
     type CalcBasis,
     CURRENCIES,
 } from '@/lib/types';
-import { Save, Check } from 'lucide-react';
+import { Save, Check, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 
 export default function SettingsPage() {
-    const { settings, setSettings, saveCurrentSettings } = useZakatStore();
+    const { settings, setSettings, saveCurrentSettings, spreadsheetId, backupSpreadsheetId } = useZakatStore();
     const [saved, setSaved] = useState(false);
 
     const updateSetting = <K extends keyof typeof settings>(
@@ -39,8 +39,8 @@ export default function SettingsPage() {
                 <button
                     onClick={handleSave}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-[0.98] ${saved
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30'
                         }`}
                 >
                     {saved ? <Check size={14} /> : <Save size={14} />}
@@ -69,8 +69,8 @@ export default function SettingsPage() {
                             key={m.value}
                             onClick={() => updateSetting('madhab', m.value)}
                             className={`text-left p-4 rounded-xl transition-all ${settings.madhab === m.value
-                                    ? 'bg-emerald-500/15 border border-emerald-500/30 shadow-sm shadow-emerald-500/5'
-                                    : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
+                                ? 'bg-emerald-500/15 border border-emerald-500/30 shadow-sm shadow-emerald-500/5'
+                                : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
                                 }`}
                         >
                             <p
@@ -104,8 +104,8 @@ export default function SettingsPage() {
                             key={n.value}
                             onClick={() => updateSetting('nisabStandard', n.value)}
                             className={`text-left p-4 rounded-xl transition-all ${settings.nisabStandard === n.value
-                                    ? 'bg-amber-500/15 border border-amber-500/30'
-                                    : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
+                                ? 'bg-amber-500/15 border border-amber-500/30'
+                                : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
                                 }`}
                         >
                             <p className="text-lg mb-1">{n.emoji}</p>
@@ -140,8 +140,8 @@ export default function SettingsPage() {
                             key={c.value}
                             onClick={() => updateSetting('calculationBasis', c.value)}
                             className={`text-left p-4 rounded-xl transition-all ${settings.calculationBasis === c.value
-                                    ? 'bg-purple-500/15 border border-purple-500/30'
-                                    : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
+                                ? 'bg-purple-500/15 border border-purple-500/30'
+                                : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
                                 }`}
                         >
                             <p
@@ -172,13 +172,58 @@ export default function SettingsPage() {
                             key={cur}
                             onClick={() => updateSetting('baseCurrency', cur)}
                             className={`px-3 py-2.5 rounded-xl text-xs font-medium transition-all ${settings.baseCurrency === cur
-                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                                    : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:border-white/[0.12]'
+                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:border-white/[0.12]'
                                 }`}
                         >
                             {cur}
                         </button>
                     ))}
+                </div>
+            </section>
+
+            {/* Data Storage & Backups */}
+            <section className="rounded-2xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] p-6">
+                <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-1">
+                    Data Storage & Backups
+                </h2>
+                <p className="text-xs text-white/30 mb-4">
+                    Your data is securely stored in your personal Google Drive. A real-time backup sheet receives automatic twin updates for maximum safety.
+                </p>
+                <div className="grid gap-3">
+                    <a
+                        href={spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}` : '#'}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center justify-between p-4 rounded-xl transition-all bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.05]"
+                    >
+                        <div>
+                            <p className="text-sm font-semibold text-emerald-400 mb-0.5">
+                                Primary Data Sheet
+                            </p>
+                            <p className="text-[10px] text-white/30">
+                                The live document ZakatFlow uses for calculations
+                            </p>
+                        </div>
+                        <ExternalLink size={16} className="text-white/40" />
+                    </a>
+
+                    <a
+                        href={backupSpreadsheetId ? `https://docs.google.com/spreadsheets/d/${backupSpreadsheetId}` : '#'}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center justify-between p-4 rounded-xl transition-all bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.05]"
+                    >
+                        <div>
+                            <p className="text-sm font-semibold text-emerald-400 mb-0.5">
+                                Real-time Backup Sheet
+                            </p>
+                            <p className="text-[10px] text-white/30">
+                                A mirror copy automatically updated alongside your primary sheet
+                            </p>
+                        </div>
+                        <ExternalLink size={16} className="text-white/40" />
+                    </a>
                 </div>
             </section>
         </div>

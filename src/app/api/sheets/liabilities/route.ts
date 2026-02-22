@@ -7,6 +7,10 @@ function getSpreadsheetId(request: NextRequest): string | null {
     return request.headers.get('x-spreadsheet-id');
 }
 
+function getBackupSpreadsheetId(request: NextRequest): string | null {
+    return request.headers.get('x-backup-spreadsheet-id');
+}
+
 export async function GET(request: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session?.accessToken) {
@@ -34,13 +38,25 @@ export async function POST(request: NextRequest) {
     }
 
     const spreadsheetId = getSpreadsheetId(request);
+    const backupSpreadsheetId = getBackupSpreadsheetId(request);
     if (!spreadsheetId) {
         return NextResponse.json({ error: 'No spreadsheet ID' }, { status: 400 });
     }
 
     try {
         const liabilityData = await request.json();
-        const liability = await addLiability(spreadsheetId, session.accessToken, liabilityData);
+        let liability;
+
+        if (backupSpreadsheetId) {
+            const [primaryLiability] = await Promise.all([
+                addLiability(spreadsheetId, session.accessToken, liabilityData),
+                addLiability(backupSpreadsheetId, session.accessToken, liabilityData).catch(e => console.error('Backup addLiability error:', e))
+            ]);
+            liability = primaryLiability;
+        } else {
+            liability = await addLiability(spreadsheetId, session.accessToken, liabilityData);
+        }
+
         return NextResponse.json({ data: liability });
     } catch (error) {
         console.error('Add liability error:', error);
@@ -58,13 +74,23 @@ export async function PUT(request: NextRequest) {
     }
 
     const spreadsheetId = getSpreadsheetId(request);
+    const backupSpreadsheetId = getBackupSpreadsheetId(request);
     if (!spreadsheetId) {
         return NextResponse.json({ error: 'No spreadsheet ID' }, { status: 400 });
     }
 
     try {
         const liabilityData = await request.json();
-        await updateLiability(spreadsheetId, session.accessToken, liabilityData);
+
+        if (backupSpreadsheetId) {
+            await Promise.all([
+                updateLiability(spreadsheetId, session.accessToken, liabilityData),
+                updateLiability(backupSpreadsheetId, session.accessToken, liabilityData).catch(e => console.error('Backup updateLiability error:', e))
+            ]);
+        } else {
+            await updateLiability(spreadsheetId, session.accessToken, liabilityData);
+        }
+
         return NextResponse.json({ data: { success: true } });
     } catch (error) {
         console.error('Update liability error:', error);
@@ -82,13 +108,23 @@ export async function DELETE(request: NextRequest) {
     }
 
     const spreadsheetId = getSpreadsheetId(request);
+    const backupSpreadsheetId = getBackupSpreadsheetId(request);
     if (!spreadsheetId) {
         return NextResponse.json({ error: 'No spreadsheet ID' }, { status: 400 });
     }
 
     try {
         const { id } = await request.json();
-        await deleteLiability(spreadsheetId, session.accessToken, id);
+
+        if (backupSpreadsheetId) {
+            await Promise.all([
+                deleteLiability(spreadsheetId, session.accessToken, id),
+                deleteLiability(backupSpreadsheetId, session.accessToken, id).catch(e => console.error('Backup deleteLiability error:', e))
+            ]);
+        } else {
+            await deleteLiability(spreadsheetId, session.accessToken, id);
+        }
+
         return NextResponse.json({ data: { success: true } });
     } catch (error) {
         console.error('Delete liability error:', error);

@@ -22,6 +22,7 @@ interface ZakatStore {
     history: HistoryEntry[];
     prices: PriceData;
     spreadsheetId: string | null;
+    backupSpreadsheetId: string | null;
     isLoading: boolean;
     error: string | null;
     isInitialized: boolean;
@@ -32,6 +33,7 @@ interface ZakatStore {
 
     // Actions
     setSpreadsheetId: (id: string) => void;
+    setBackupSpreadsheetId: (id: string) => void;
     setSettings: (settings: Settings) => void;
     setAssets: (assets: Asset[]) => void;
     addAsset: (asset: Asset) => void;
@@ -84,6 +86,7 @@ export const useZakatStore = create<ZakatStore>((set, get) => ({
     history: [],
     prices: DEFAULT_PRICES,
     spreadsheetId: null,
+    backupSpreadsheetId: null,
     isLoading: false,
     error: null,
     isInitialized: false,
@@ -92,6 +95,7 @@ export const useZakatStore = create<ZakatStore>((set, get) => ({
 
     // Simple setters
     setSpreadsheetId: (id) => set({ spreadsheetId: id }),
+    setBackupSpreadsheetId: (id) => set({ backupSpreadsheetId: id }),
     setSettings: (settings) => {
         set({ settings });
         get().recalculate();
@@ -217,12 +221,15 @@ export const useZakatStore = create<ZakatStore>((set, get) => ({
 
     // Fetch all data from APIs
     fetchAllData: async () => {
-        const { spreadsheetId } = get();
+        const { spreadsheetId, backupSpreadsheetId } = get();
         if (!spreadsheetId) return;
 
         set({ isLoading: true, error: null });
         try {
-            const sheetHeaders = { 'x-spreadsheet-id': spreadsheetId };
+            const sheetHeaders: Record<string, string> = { 'x-spreadsheet-id': spreadsheetId };
+            if (backupSpreadsheetId) {
+                sheetHeaders['x-backup-spreadsheet-id'] = backupSpreadsheetId;
+            }
             const [settingsRes, assetsRes, liabilitiesRes, historyRes, pricesRes] =
                 await Promise.all([
                     fetch('/api/sheets/settings', { headers: sheetHeaders }),
@@ -259,14 +266,19 @@ export const useZakatStore = create<ZakatStore>((set, get) => ({
 
     // Save settings via API
     saveCurrentSettings: async () => {
-        const { settings } = get();
+        const { settings, spreadsheetId, backupSpreadsheetId } = get();
         try {
+            const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+                'x-spreadsheet-id': spreadsheetId || '',
+            };
+            if (backupSpreadsheetId) {
+                headers['x-backup-spreadsheet-id'] = backupSpreadsheetId;
+            }
+
             await fetch('/api/sheets/settings', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-spreadsheet-id': get().spreadsheetId || '',
-                },
+                headers,
                 body: JSON.stringify(settings),
             });
         } catch (err) {

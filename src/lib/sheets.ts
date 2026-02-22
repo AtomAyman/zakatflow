@@ -2,13 +2,14 @@ import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { type Settings, type Asset, type Liability, type HistoryEntry, DEFAULT_SETTINGS } from './types';
 import { v4 as uuid } from 'uuid';
 
-const SPREADSHEET_TITLE = 'My_Zakat_Dashboard';
+const SPREADSHEET_TITLE_PRIMARY = 'My_Zakat_Dashboard';
+const SPREADSHEET_TITLE_BACKUP = 'My_Zakat_Dashboard_Backup';
 
 // ─── Helpers ──────────────────────────────────────────────
 
-async function findSpreadsheet(accessToken: string): Promise<string | null> {
+async function findSpreadsheet(accessToken: string, title: string = SPREADSHEET_TITLE_PRIMARY): Promise<string | null> {
     const res = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=name='${SPREADSHEET_TITLE}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false&fields=files(id,name)`,
+        `https://www.googleapis.com/drive/v3/files?q=name='${title}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false&fields=files(id,name)`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     const data = await res.json();
@@ -25,14 +26,7 @@ function getDoc(spreadsheetId: string, accessToken: string): GoogleSpreadsheet {
     return doc;
 }
 
-// ─── Initialize Sheet ─────────────────────────────────────
-
-export async function initializeSheet(accessToken: string): Promise<string> {
-    // Check if sheet already exists
-    const existingId = await findSpreadsheet(accessToken);
-    if (existingId) return existingId;
-
-    // Create new spreadsheet
+async function createSpreadsheet(accessToken: string, title: string): Promise<string> {
     const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
         method: 'POST',
         headers: {
@@ -40,7 +34,7 @@ export async function initializeSheet(accessToken: string): Promise<string> {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-            properties: { title: SPREADSHEET_TITLE },
+            properties: { title },
             sheets: [
                 { properties: { title: 'Settings', index: 0 } },
                 { properties: { title: 'Assets', index: 1 } },
@@ -126,6 +120,24 @@ export async function initializeSheet(accessToken: string): Promise<string> {
     ]);
 
     return spreadsheetId;
+}
+
+// ─── Initialize Sheet ─────────────────────────────────────
+
+export async function initializeSheet(accessToken: string): Promise<{ spreadsheetId: string; backupSpreadsheetId: string }> {
+    // Check or create primary sheet
+    let spreadsheetId = await findSpreadsheet(accessToken, SPREADSHEET_TITLE_PRIMARY);
+    if (!spreadsheetId) {
+        spreadsheetId = await createSpreadsheet(accessToken, SPREADSHEET_TITLE_PRIMARY);
+    }
+
+    // Check or create backup sheet
+    let backupSpreadsheetId = await findSpreadsheet(accessToken, SPREADSHEET_TITLE_BACKUP);
+    if (!backupSpreadsheetId) {
+        backupSpreadsheetId = await createSpreadsheet(accessToken, SPREADSHEET_TITLE_BACKUP);
+    }
+
+    return { spreadsheetId, backupSpreadsheetId };
 }
 
 // ─── Settings CRUD ────────────────────────────────────────

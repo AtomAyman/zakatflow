@@ -10,8 +10,8 @@ export async function POST() {
     }
 
     try {
-        const spreadsheetId = await initializeSheet(session.accessToken);
-        return NextResponse.json({ data: { spreadsheetId } });
+        const { spreadsheetId, backupSpreadsheetId } = await initializeSheet(session.accessToken);
+        return NextResponse.json({ data: { spreadsheetId, backupSpreadsheetId } });
     } catch (error) {
         console.error('Sheet init error:', error);
         return NextResponse.json(

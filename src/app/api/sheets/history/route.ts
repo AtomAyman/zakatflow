@@ -7,6 +7,10 @@ function getSpreadsheetId(request: NextRequest): string | null {
     return request.headers.get('x-spreadsheet-id');
 }
 
+function getBackupSpreadsheetId(request: NextRequest): string | null {
+    return request.headers.get('x-backup-spreadsheet-id');
+}
+
 export async function GET(request: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session?.accessToken) {
@@ -34,13 +38,23 @@ export async function POST(request: NextRequest) {
     }
 
     const spreadsheetId = getSpreadsheetId(request);
+    const backupSpreadsheetId = getBackupSpreadsheetId(request);
     if (!spreadsheetId) {
         return NextResponse.json({ error: 'No spreadsheet ID' }, { status: 400 });
     }
 
     try {
         const entry = await request.json();
-        await addHistoryEntry(spreadsheetId, session.accessToken, entry);
+
+        if (backupSpreadsheetId) {
+            await Promise.all([
+                addHistoryEntry(spreadsheetId, session.accessToken, entry),
+                addHistoryEntry(backupSpreadsheetId, session.accessToken, entry).catch(e => console.error('Backup addHistory error:', e))
+            ]);
+        } else {
+            await addHistoryEntry(spreadsheetId, session.accessToken, entry);
+        }
+
         return NextResponse.json({ data: { success: true } });
     } catch (error) {
         console.error('Add history error:', error);

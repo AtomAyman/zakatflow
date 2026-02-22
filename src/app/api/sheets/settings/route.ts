@@ -9,6 +9,10 @@ function getSpreadsheetId(request: NextRequest): string | null {
     return request.headers.get('x-spreadsheet-id');
 }
 
+function getBackupSpreadsheetId(request: NextRequest): string | null {
+    return request.headers.get('x-backup-spreadsheet-id');
+}
+
 export async function GET(request: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session?.accessToken) {
@@ -36,13 +40,23 @@ export async function POST(request: NextRequest) {
     }
 
     const spreadsheetId = getSpreadsheetId(request);
+    const backupSpreadsheetId = getBackupSpreadsheetId(request);
     if (!spreadsheetId) {
         return NextResponse.json({ error: 'No spreadsheet ID' }, { status: 400 });
     }
 
     try {
         const settings = await request.json();
-        await saveSettings(spreadsheetId, session.accessToken, settings);
+
+        if (backupSpreadsheetId) {
+            await Promise.all([
+                saveSettings(spreadsheetId, session.accessToken, settings),
+                saveSettings(backupSpreadsheetId, session.accessToken, settings).catch(e => console.error('Backup saveSettings error:', e))
+            ]);
+        } else {
+            await saveSettings(spreadsheetId, session.accessToken, settings);
+        }
+
         return NextResponse.json({ data: settings });
     } catch (error) {
         console.error('Save settings error:', error);
