@@ -13,9 +13,9 @@ import {
     Heart,
     Receipt,
     Building2,
-    Wallet,
     Landmark,
     GraduationCap,
+    Pencil,
 } from 'lucide-react';
 import { type Liability, type LiabilityType, CURRENCIES } from '@/lib/types';
 import { v4 as uuid } from 'uuid';
@@ -72,11 +72,12 @@ const gradientMap: Record<string, string> = {
 // ─── Component ────────────────────────────────────────────
 
 export default function LiabilitiesPage() {
-    const { addLiability, removeLiability, settings, dashboard, selectedYear, getLiabilitiesForYear } =
+    const { addLiability, updateLiability, removeLiability, settings, dashboard, selectedYear, getLiabilitiesForYear } =
         useZakatStore();
     const yearLiabilities = getLiabilitiesForYear(selectedYear);
     const [activeTab, setActiveTab] = useState<LiabilityTab>('Bills');
     const [showForm, setShowForm] = useState(false);
+    const [editingLiability, setEditingLiability] = useState<Liability | null>(null);
 
     const activeTabConfig = LIABILITY_TABS.find((t) => t.key === activeTab)!;
     const filteredLiabilities = yearLiabilities.filter((l) => activeTabConfig.types.includes(l.type));
@@ -100,14 +101,32 @@ export default function LiabilitiesPage() {
         const tabConfig = LIABILITY_TABS.find((t) => t.key === tab)!;
         setNewType(tabConfig.types[0]);
         setShowForm(false);
+        setEditingLiability(null);
     };
 
-    const openFormForTab = () => {
-        setNewType(activeTabConfig.types[0]);
+    const resetForm = () => {
         setNewName('');
         setNewTotal('');
         setNewMonthly('');
         setNewIsImmediate(false);
+    };
+
+    const openFormForTab = () => {
+        setEditingLiability(null);
+        setNewType(activeTabConfig.types[0]);
+        setNewCurrency(settings.baseCurrency);
+        resetForm();
+        setShowForm(true);
+    };
+
+    const openEditModal = (liability: Liability) => {
+        setEditingLiability(liability);
+        setNewType(liability.type);
+        setNewName(liability.name);
+        setNewTotal(liability.totalAmount.toString());
+        setNewMonthly(liability.monthlyPayment.toString());
+        setNewCurrency(liability.currency);
+        setNewIsImmediate(liability.isImmediate || false);
         setShowForm(true);
     };
 
@@ -133,10 +152,34 @@ export default function LiabilitiesPage() {
             body: JSON.stringify(liability),
         }).catch(console.error);
 
-        setNewName('');
-        setNewTotal('');
-        setNewMonthly('');
-        setNewIsImmediate(false);
+        resetForm();
+        setShowForm(false);
+    };
+
+    const handleUpdate = () => {
+        if (!editingLiability) return;
+        const liability: Liability = {
+            id: editingLiability.id,
+            zakatYear: selectedYear,
+            type: newType,
+            name: newName || typeLabels[newType],
+            currency: newCurrency,
+            totalAmount: Number(newTotal) || 0,
+            monthlyPayment: Number(newMonthly) || 0,
+            isImmediate: newIsImmediate,
+        };
+
+        updateLiability(liability);
+        fetch('/api/sheets/liabilities', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
+            },
+            body: JSON.stringify(liability),
+        }).catch(console.error);
+
+        setEditingLiability(null);
         setShowForm(false);
     };
 
@@ -149,6 +192,20 @@ export default function LiabilitiesPage() {
                 'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
             },
             body: JSON.stringify({ id }),
+        }).catch(console.error);
+    };
+
+    // Quick toggle immediate — inline without opening modal
+    const toggleImmediate = (liability: Liability) => {
+        const updated = { ...liability, isImmediate: !liability.isImmediate };
+        updateLiability(updated);
+        fetch('/api/sheets/liabilities', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
+            },
+            body: JSON.stringify(updated),
         }).catch(console.error);
     };
 
@@ -250,11 +307,17 @@ export default function LiabilitiesPage() {
                                         <span className="px-2 py-0.5 rounded-md bg-white/[0.06] text-[10px] text-white/40 font-medium">
                                             {typeLabels[liability.type]}
                                         </span>
-                                        {liability.isImmediate && (
-                                            <span className="px-2 py-0.5 rounded-md bg-red-500/10 text-[10px] text-red-400 font-medium">
-                                                Immediate
-                                            </span>
-                                        )}
+                                        {/* Clickable immediate toggle */}
+                                        <button
+                                            onClick={() => toggleImmediate(liability)}
+                                            className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-all ${liability.isImmediate
+                                                ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                                                : 'bg-white/[0.04] text-white/25 hover:bg-white/[0.08] hover:text-white/50'
+                                                }`}
+                                            title={liability.isImmediate ? 'Click to mark as long-term' : 'Click to mark as immediate'}
+                                        >
+                                            {liability.isImmediate ? '⚡ Immediate' : '○ Long-term'}
+                                        </button>
                                         {liability.currency !== settings.baseCurrency && (
                                             <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-[10px] text-blue-400 font-medium">
                                                 {liability.currency}
@@ -266,12 +329,20 @@ export default function LiabilitiesPage() {
                                         <span>Monthly: {liability.currency} {liability.monthlyPayment.toLocaleString()}</span>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={() => handleDelete(liability.id)}
-                                    className="p-2 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button
+                                        onClick={() => openEditModal(liability)}
+                                        className="p-2 rounded-lg text-white/20 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
+                                    >
+                                        <Pencil size={14} />
+                                    </button>
+                                    <button
+                                        onClick={() => handleDelete(liability.id)}
+                                        className="p-2 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     );
@@ -289,7 +360,7 @@ export default function LiabilitiesPage() {
                     </h3>
                     <p className="text-sm text-white/30 mb-4 max-w-sm mx-auto">
                         {activeTab === 'Bills' && 'Add credit card balances, utility bills, or medical bills.'}
-                        {activeTab === 'Loans' && 'Add mortgages, personal loans, commercial loans, or other debts.'}
+                        {activeTab === 'Loans' && 'Add mortgages, student loans, personal loans, or other debts.'}
                     </p>
                 </div>
             )}
@@ -314,14 +385,16 @@ export default function LiabilitiesPage() {
                 </div>
             )}
 
-            {/* ─── Add Form Modal ─────────────────────────────────── */}
+            {/* ─── Add / Edit Form Modal ───────────────────────── */}
             {showForm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowForm(false)} />
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowForm(false); setEditingLiability(null); }} />
                     <div className="relative w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-[#1a1d27] border border-white/[0.08] shadow-2xl p-6">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-base font-semibold text-white">Add {activeTabConfig.label}</h2>
-                            <button onClick={() => setShowForm(false)} className="p-2 rounded-lg hover:bg-white/10 text-white/40">
+                            <h2 className="text-base font-semibold text-white">
+                                {editingLiability ? 'Edit Liability' : `Add ${activeTabConfig.label}`}
+                            </h2>
+                            <button onClick={() => { setShowForm(false); setEditingLiability(null); }} className="p-2 rounded-lg hover:bg-white/10 text-white/40">
                                 <X size={18} />
                             </button>
                         </div>
@@ -418,10 +491,10 @@ export default function LiabilitiesPage() {
                             </div>
 
                             <button
-                                onClick={handleAdd}
+                                onClick={editingLiability ? handleUpdate : handleAdd}
                                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all active:scale-[0.98]"
                             >
-                                Add Liability
+                                {editingLiability ? 'Save Changes' : 'Add Liability'}
                             </button>
                         </div>
                     </div>

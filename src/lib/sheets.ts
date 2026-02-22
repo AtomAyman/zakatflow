@@ -188,30 +188,62 @@ export async function getAssets(
     const sheet = doc.sheetsByTitle['Assets'];
     const rows = await sheet.getRows();
 
-    return rows.map((row) => ({
-        id: row.get('ID') || uuid(),
-        zakatYear: row.get('Zakat_Year') || new Date().getFullYear().toString(),
-        type: row.get('Type') as Asset['type'],
-        name: row.get('Name') || '',
-        currency: row.get('Currency') || 'USD',
-        grossValue: Number(row.get('Gross_Value')) || 0,
-        zakatMethod: (row.get('Zakat_Method') || 'Market') as Asset['zakatMethod'],
-        valuationPercent: Number(row.get('Valuation_Percent')) || 100,
-        stockHoldingType: row.get('Stock_Holding_Type') || undefined,
-        zakatableAssetPercent: row.get('Zakatable_Asset_Percent') ? Number(row.get('Zakatable_Asset_Percent')) : undefined,
-        retirementType: row.get('Retirement_Type') || undefined,
-        cryptoIntent: row.get('Crypto_Intent') || undefined,
-        debtStrength: row.get('Debt_Strength') || undefined,
-        ticker: row.get('Ticker') || undefined,
-        quantity: row.get('Quantity') ? Number(row.get('Quantity')) : undefined,
-        goldPurity: row.get('Gold_Purity') ? Number(row.get('Gold_Purity')) : undefined,
-        weightGrams: row.get('Weight_Grams') ? Number(row.get('Weight_Grams')) : undefined,
-        weightUnit: row.get('Weight_Unit') || undefined,
-        isJewelry: row.get('Is_Jewelry') === 'true',
-        isETF: row.get('Is_ETF') === 'true',
-        deductibleTaxPenalty: Number(row.get('Deductible_Tax_Penalty')) || 0,
-        netZakatableValue: Number(row.get('Net_Zakatable_Value')) || 0,
-    }));
+    const rowsToSave: any[] = [];
+
+    const assets = rows.map((row) => {
+        let needsSave = false;
+        let id = row.get('ID');
+        if (!id) {
+            id = uuid();
+            row.set('ID', id);
+            needsSave = true;
+        }
+
+        let zakatYear = row.get('Zakat_Year');
+        if (!zakatYear) {
+            zakatYear = new Date().getFullYear().toString();
+            row.set('Zakat_Year', zakatYear);
+            needsSave = true;
+        }
+
+        if (needsSave) {
+            rowsToSave.push(row);
+        }
+
+        return {
+            id,
+            zakatYear,
+            type: row.get('Type') as Asset['type'],
+            name: row.get('Name') || '',
+            currency: row.get('Currency') || 'USD',
+            grossValue: Number(row.get('Gross_Value')) || 0,
+            zakatMethod: (row.get('Zakat_Method') || 'Market') as Asset['zakatMethod'],
+            valuationPercent: Number(row.get('Valuation_Percent')) || 100,
+            stockHoldingType: (row.get('Stock_Holding_Type') || '').trim() || undefined,
+            zakatableAssetPercent: row.get('Zakatable_Asset_Percent') ? Number(row.get('Zakatable_Asset_Percent')) : undefined,
+            retirementType: (row.get('Retirement_Type') || '').trim() || undefined,
+            cryptoIntent: (row.get('Crypto_Intent') || '').trim() || undefined,
+            debtStrength: (row.get('Debt_Strength') || '').trim() || undefined,
+            ticker: (row.get('Ticker') || '').trim() || undefined,
+            quantity: row.get('Quantity') ? Number(row.get('Quantity')) : undefined,
+            goldPurity: row.get('Gold_Purity') ? Number(row.get('Gold_Purity')) : undefined,
+            weightGrams: row.get('Weight_Grams') ? Number(row.get('Weight_Grams')) : undefined,
+            weightUnit: (row.get('Weight_Unit') || '').trim() || undefined,
+            isJewelry: String(row.get('Is_Jewelry') || '').toLowerCase() === 'true',
+            isETF: String(row.get('Is_ETF') || '').toLowerCase() === 'true',
+            deductibleTaxPenalty: Number(row.get('Deductible_Tax_Penalty')) || 0,
+            netZakatableValue: Number(row.get('Net_Zakatable_Value')) || 0,
+        };
+    });
+
+    if (rowsToSave.length > 0) {
+        // Google Sheets API has rate limits, let's do this sequentially to be safe
+        for (const row of rowsToSave) {
+            await row.save();
+        }
+    }
+
+    return assets;
 }
 
 export async function addAsset(
@@ -265,6 +297,42 @@ export async function deleteAsset(
     if (row) await row.delete();
 }
 
+export async function updateAsset(
+    spreadsheetId: string,
+    accessToken: string,
+    asset: Asset
+): Promise<void> {
+    const doc = getDoc(spreadsheetId, accessToken);
+    await doc.loadInfo();
+    const sheet = doc.sheetsByTitle['Assets'];
+    const rows = await sheet.getRows();
+    const row = rows.find((r) => r.get('ID') === asset.id);
+    if (!row) return;
+
+    row.set('Zakat_Year', asset.zakatYear || new Date().getFullYear().toString());
+    row.set('Type', asset.type);
+    row.set('Name', asset.name);
+    row.set('Currency', asset.currency);
+    row.set('Gross_Value', asset.grossValue);
+    row.set('Zakat_Method', asset.zakatMethod);
+    row.set('Valuation_Percent', asset.valuationPercent);
+    row.set('Stock_Holding_Type', asset.stockHoldingType || '');
+    row.set('Zakatable_Asset_Percent', asset.zakatableAssetPercent ?? '');
+    row.set('Retirement_Type', asset.retirementType || '');
+    row.set('Crypto_Intent', asset.cryptoIntent || '');
+    row.set('Debt_Strength', asset.debtStrength || '');
+    row.set('Ticker', asset.ticker || '');
+    row.set('Quantity', asset.quantity ?? '');
+    row.set('Gold_Purity', asset.goldPurity ?? '');
+    row.set('Weight_Grams', asset.weightGrams ?? '');
+    row.set('Weight_Unit', asset.weightUnit || '');
+    row.set('Is_Jewelry', asset.isJewelry ? 'true' : 'false');
+    row.set('Is_ETF', asset.isETF ? 'true' : 'false');
+    row.set('Deductible_Tax_Penalty', asset.deductibleTaxPenalty);
+    row.set('Net_Zakatable_Value', asset.netZakatableValue);
+    await row.save();
+}
+
 // ─── Liabilities CRUD ────────────────────────────────────
 
 export async function getLiabilities(
@@ -276,16 +344,48 @@ export async function getLiabilities(
     const sheet = doc.sheetsByTitle['Liabilities'];
     const rows = await sheet.getRows();
 
-    return rows.map((row) => ({
-        id: row.get('ID') || uuid(),
-        zakatYear: row.get('Zakat_Year') || new Date().getFullYear().toString(),
-        type: row.get('Type') as Liability['type'],
-        name: row.get('Name') || '',
-        currency: row.get('Currency') || 'USD',
-        totalAmount: Number(row.get('Total_Amount')) || 0,
-        monthlyPayment: Number(row.get('Monthly_Payment')) || 0,
-        isImmediate: row.get('Is_Immediate') === 'true',
-    }));
+    const rowsToSave: any[] = [];
+
+    const liabilities = rows.map((row) => {
+        let needsSave = false;
+        let id = row.get('ID');
+        if (!id) {
+            id = uuid();
+            row.set('ID', id);
+            needsSave = true;
+        }
+
+        let zakatYear = row.get('Zakat_Year');
+        if (!zakatYear) {
+            zakatYear = new Date().getFullYear().toString();
+            row.set('Zakat_Year', zakatYear);
+            needsSave = true;
+        }
+
+        if (needsSave) {
+            rowsToSave.push(row);
+        }
+
+        return {
+            id,
+            zakatYear,
+            type: row.get('Type') as Liability['type'],
+            name: row.get('Name') || '',
+            currency: row.get('Currency') || 'USD',
+            totalAmount: Number(row.get('Total_Amount')) || 0,
+            monthlyPayment: Number(row.get('Monthly_Payment')) || 0,
+            isImmediate: String(row.get('Is_Immediate') || '').toLowerCase() === 'true',
+        };
+    });
+
+    if (rowsToSave.length > 0) {
+        // Google Sheets API has rate limits, let's do this sequentially to be safe
+        for (const row of rowsToSave) {
+            await row.save();
+        }
+    }
+
+    return liabilities;
 }
 
 export async function addLiability(
@@ -323,6 +423,28 @@ export async function deleteLiability(
     const rows = await sheet.getRows();
     const row = rows.find((r) => r.get('ID') === liabilityId);
     if (row) await row.delete();
+}
+
+export async function updateLiability(
+    spreadsheetId: string,
+    accessToken: string,
+    liability: Liability
+): Promise<void> {
+    const doc = getDoc(spreadsheetId, accessToken);
+    await doc.loadInfo();
+    const sheet = doc.sheetsByTitle['Liabilities'];
+    const rows = await sheet.getRows();
+    const row = rows.find((r) => r.get('ID') === liability.id);
+    if (!row) return;
+
+    row.set('Zakat_Year', liability.zakatYear || new Date().getFullYear().toString());
+    row.set('Type', liability.type);
+    row.set('Name', liability.name);
+    row.set('Currency', liability.currency);
+    row.set('Total_Amount', liability.totalAmount);
+    row.set('Monthly_Payment', liability.monthlyPayment);
+    row.set('Is_Immediate', liability.isImmediate ? 'true' : 'false');
+    await row.save();
 }
 
 // ─── History ──────────────────────────────────────────────

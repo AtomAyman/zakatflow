@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getLiabilities, addLiability, deleteLiability } from '@/lib/sheets';
+import { getLiabilities, addLiability, deleteLiability, updateLiability } from '@/lib/sheets';
 
 function getSpreadsheetId(request: NextRequest): string | null {
     return request.headers.get('x-spreadsheet-id');
@@ -46,6 +46,30 @@ export async function POST(request: NextRequest) {
         console.error('Add liability error:', error);
         return NextResponse.json(
             { error: 'Failed to add liability' },
+            { status: 500 }
+        );
+    }
+}
+
+export async function PUT(request: NextRequest) {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const spreadsheetId = getSpreadsheetId(request);
+    if (!spreadsheetId) {
+        return NextResponse.json({ error: 'No spreadsheet ID' }, { status: 400 });
+    }
+
+    try {
+        const liabilityData = await request.json();
+        await updateLiability(spreadsheetId, session.accessToken, liabilityData);
+        return NextResponse.json({ data: { success: true } });
+    } catch (error) {
+        console.error('Update liability error:', error);
+        return NextResponse.json(
+            { error: 'Failed to update liability' },
             { status: 500 }
         );
     }

@@ -11,7 +11,7 @@ import {
     DEFAULT_SETTINGS,
     DEFAULT_PRICES,
 } from './types';
-import { calculateDashboard } from './zakat-engine';
+import { calculateDashboard, calculateAssetNetValue } from './zakat-engine';
 import { v4 as uuid } from 'uuid';
 
 interface ZakatStore {
@@ -35,9 +35,11 @@ interface ZakatStore {
     setSettings: (settings: Settings) => void;
     setAssets: (assets: Asset[]) => void;
     addAsset: (asset: Asset) => void;
+    updateAsset: (asset: Asset) => void;
     removeAsset: (id: string) => void;
     setLiabilities: (liabilities: Liability[]) => void;
     addLiability: (liability: Liability) => void;
+    updateLiability: (liability: Liability) => void;
     removeLiability: (id: string) => void;
     setHistory: (history: HistoryEntry[]) => void;
     setPrices: (prices: PriceData) => void;
@@ -102,6 +104,12 @@ export const useZakatStore = create<ZakatStore>((set, get) => ({
         set((state) => ({ assets: [...state.assets, asset] }));
         get().recalculate();
     },
+    updateAsset: (asset) => {
+        set((state) => ({
+            assets: state.assets.map((a) => (a.id === asset.id ? asset : a)),
+        }));
+        get().recalculate();
+    },
     removeAsset: (id) => {
         set((state) => ({ assets: state.assets.filter((a) => a.id !== id) }));
         get().recalculate();
@@ -112,6 +120,12 @@ export const useZakatStore = create<ZakatStore>((set, get) => ({
     },
     addLiability: (liability) => {
         set((state) => ({ liabilities: [...state.liabilities, liability] }));
+        get().recalculate();
+    },
+    updateLiability: (liability) => {
+        set((state) => ({
+            liabilities: state.liabilities.map((l) => (l.id === liability.id ? liability : l)),
+        }));
         get().recalculate();
     },
     removeLiability: (id) => {
@@ -182,7 +196,23 @@ export const useZakatStore = create<ZakatStore>((set, get) => ({
             settings,
             prices
         );
-        set({ dashboard });
+
+        // Stamp computed values back onto each asset for display
+        const updatedAssets = assets.map((asset) => {
+            if (asset.zakatYear !== selectedYear) return asset;
+            const { netZakatable, deductible, computedGrossInBase } = calculateAssetNetValue(
+                asset, settings, prices.exchangeRates, prices
+            );
+            return {
+                ...asset,
+                netZakatableValue: netZakatable,
+                deductibleTaxPenalty: deductible,
+                // Store computed gross in base currency for display (don't overwrite grossValue)
+                _computedGross: computedGrossInBase,
+            };
+        });
+
+        set({ dashboard, assets: updatedAssets });
     },
 
     // Fetch all data from APIs

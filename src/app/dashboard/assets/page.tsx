@@ -17,6 +17,7 @@ import {
     Scale,
     Banknote,
     BarChart3,
+    Pencil,
 } from 'lucide-react';
 import {
     type Asset,
@@ -93,10 +94,11 @@ const gradientMap: Record<string, string> = {
 // ─── Component ────────────────────────────────────────────
 
 export default function AssetsPage() {
-    const { addAsset, removeAsset, settings, dashboard, prices, selectedYear, getAssetsForYear } = useZakatStore();
+    const { addAsset, updateAsset, removeAsset, settings, dashboard, prices, selectedYear, getAssetsForYear } = useZakatStore();
     const yearAssets = getAssetsForYear(selectedYear);
     const [activeTab, setActiveTab] = useState<AssetTab>('Money');
     const [showForm, setShowForm] = useState(false);
+    const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
 
     // Form state
     const activeTabConfig = ASSET_TABS.find((t) => t.key === activeTab)!;
@@ -143,10 +145,10 @@ export default function AssetsPage() {
         const tabConfig = ASSET_TABS.find((t) => t.key === tab)!;
         setNewType(tabConfig.types[0]);
         setShowForm(false);
+        setEditingAsset(null);
     };
 
-    const openFormForTab = () => {
-        setNewType(activeTabConfig.types[0]);
+    const resetForm = () => {
         setNewName('');
         setNewValue('');
         setNewValuation('100');
@@ -155,10 +157,49 @@ export default function AssetsPage() {
         setWeightInput('');
         setWeightUnit('grams');
         setGoldPurity(24);
+        setStockHoldingType('Short_Term');
+        setZakatableAssetPercent('40');
+        setRetirementType('Voluntary');
+        setCryptoIntent('Currency');
+        setDebtStrength('Strong');
+    };
+
+    const openFormForTab = () => {
+        setEditingAsset(null);
+        setNewType(activeTabConfig.types[0]);
+        setNewCurrency(settings.baseCurrency);
+        resetForm();
         setShowForm(true);
     };
 
-    const handleAdd = () => {
+    const openEditModal = (asset: Asset) => {
+        setEditingAsset(asset);
+        setNewType(asset.type);
+        setNewName(asset.name);
+        setNewValue(asset.grossValue.toString());
+        setNewCurrency(asset.currency);
+        setNewValuation(asset.valuationPercent.toString());
+        setIsJewelry(asset.isJewelry || false);
+        setIsETF(asset.isETF || false);
+        setStockHoldingType(asset.stockHoldingType || 'Short_Term');
+        setZakatableAssetPercent((asset.zakatableAssetPercent ?? 40).toString());
+        setRetirementType(asset.retirementType || 'Voluntary');
+        setCryptoIntent(asset.cryptoIntent || 'Currency');
+        setDebtStrength(asset.debtStrength || 'Strong');
+        if (asset.weightGrams && !asset.isETF) {
+            const unit = asset.weightUnit || 'grams';
+            const unitInfo = WEIGHT_UNITS.find((u) => u.value === unit);
+            setWeightUnit(unit);
+            setWeightInput((asset.weightGrams / (unitInfo?.toGrams ?? 1)).toString());
+        } else {
+            setWeightInput('');
+            setWeightUnit('grams');
+        }
+        setGoldPurity(asset.goldPurity || 24);
+        setShowForm(true);
+    };
+
+    const buildAssetFromForm = (id: string): Asset => {
         let grossValue = Number(newValue) || 0;
         let weightGrams: number | undefined;
 
@@ -170,8 +211,8 @@ export default function AssetsPage() {
             grossValue = weightGrams * pricePerGram * purityMult;
         }
 
-        const asset: Asset = {
-            id: uuid(),
+        return {
+            id,
             zakatYear: selectedYear,
             type: newType,
             name: newName || typeLabels[newType],
@@ -196,7 +237,10 @@ export default function AssetsPage() {
             deductibleTaxPenalty: 0,
             netZakatableValue: 0,
         };
+    };
 
+    const handleAdd = () => {
+        const asset = buildAssetFromForm(uuid());
         addAsset(asset);
         fetch('/api/sheets/assets', {
             method: 'POST',
@@ -206,15 +250,23 @@ export default function AssetsPage() {
             },
             body: JSON.stringify(asset),
         }).catch(console.error);
+        resetForm();
+        setShowForm(false);
+    };
 
-        setNewName('');
-        setNewValue('');
-        setNewValuation('100');
-        setIsJewelry(false);
-        setIsETF(false);
-        setWeightInput('');
-        setWeightUnit('grams');
-        setGoldPurity(24);
+    const handleUpdate = () => {
+        if (!editingAsset) return;
+        const asset = buildAssetFromForm(editingAsset.id);
+        updateAsset(asset);
+        fetch('/api/sheets/assets', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
+            },
+            body: JSON.stringify(asset),
+        }).catch(console.error);
+        setEditingAsset(null);
         setShowForm(false);
     };
 
@@ -236,8 +288,18 @@ export default function AssetsPage() {
         return acc;
     }, {} as Record<AssetTab, number>);
 
-    // Tab totals
-    const tabTotal = filteredAssets.reduce((s, a) => s + a.grossValue, 0);
+    // Per-tab zakat breakdown
+    const tabTotal = filteredAssets.reduce((s, a) => s + ((a as any)._computedGross || a.grossValue), 0);
+    const tabNetZakatable = filteredAssets.reduce((s, a) => s + a.netZakatableValue, 0);
+    const tabZakatDue = tabNetZakatable > 0 ? tabNetZakatable * 0.025 : 0;
+
+    // All-tab zakat breakdown for summary
+    const tabBreakdown = ASSET_TABS.map((tab) => {
+        const tabAssets = yearAssets.filter((a) => tab.types.includes(a.type));
+        const gross = tabAssets.reduce((s, a) => s + ((a as any)._computedGross || a.grossValue), 0);
+        const net = tabAssets.reduce((s, a) => s + a.netZakatableValue, 0);
+        return { key: tab.key, label: tab.label, icon: tab.icon, gross, net, zakat: net > 0 ? net * 0.025 : 0 };
+    });
 
     return (
         <div className="space-y-6">
@@ -287,11 +349,23 @@ export default function AssetsPage() {
                 })}
             </div>
 
-            {/* Tab total */}
+            {/* Per-tab zakat summary */}
             {filteredAssets.length > 0 && (
-                <div className="rounded-xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] px-5 py-3 flex items-center justify-between text-xs">
-                    <span className="text-white/30">{activeTab} Total</span>
-                    <span className="text-white/80 font-semibold">{formatCurrency(tabTotal)}</span>
+                <div className="rounded-xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] px-5 py-4">
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                        <div>
+                            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Gross Value</p>
+                            <p className="text-base font-bold text-white">{formatCurrency(tabTotal)}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Net Zakatable</p>
+                            <p className="text-base font-bold text-amber-400">{formatCurrency(tabNetZakatable)}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Zakat Due (2.5%)</p>
+                            <p className="text-base font-bold text-emerald-400">{formatCurrency(tabZakatDue)}</p>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -299,6 +373,7 @@ export default function AssetsPage() {
             <div className="space-y-3">
                 {filteredAssets.map((asset) => {
                     const Icon = typeIcons[asset.type] || DollarSign;
+                    const assetZakat = asset.netZakatableValue > 0 ? asset.netZakatableValue * 0.025 : 0;
                     return (
                         <div
                             key={asset.id}
@@ -338,19 +413,30 @@ export default function AssetsPage() {
                                             <span className="px-2 py-0.5 rounded-md bg-orange-500/10 text-[10px] text-orange-400 font-medium">Platform Token (exempt)</span>
                                         )}
                                     </div>
-                                    <p className="text-xs text-white/30">
-                                        {asset.currency} {asset.grossValue.toLocaleString()}
-                                        {asset.valuationPercent < 100 && ` · ${asset.valuationPercent}% zakatable`}
-                                        {asset.stockHoldingType === 'Long_Term' && ` · Long-term (${asset.zakatableAssetPercent ?? 40}% zakatable assets)`}
-                                        {asset.debtStrength && ` · ${asset.debtStrength} debt`}
-                                    </p>
+                                    <div className="flex items-center gap-4 text-xs text-white/30">
+                                        <span>{settings.baseCurrency} {((asset as any)._computedGross || asset.grossValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                        {assetZakat > 0 && (
+                                            <span className="text-emerald-400/60">Zakat: {formatCurrency(assetZakat)}</span>
+                                        )}
+                                        {asset.valuationPercent < 100 && <span>{asset.valuationPercent}% zakatable</span>}
+                                        {asset.stockHoldingType === 'Long_Term' && <span>Long-term ({asset.zakatableAssetPercent ?? 40}%)</span>}
+                                        {asset.debtStrength && <span>{asset.debtStrength} debt</span>}
+                                    </div>
                                 </div>
-                                <button
-                                    onClick={() => handleDelete(asset.id)}
-                                    className="p-2 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button
+                                        onClick={() => openEditModal(asset)}
+                                        className="p-2 rounded-lg text-white/20 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
+                                    >
+                                        <Pencil size={14} />
+                                    </button>
+                                    <button
+                                        onClick={() => handleDelete(asset.id)}
+                                        className="p-2 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     );
@@ -374,7 +460,38 @@ export default function AssetsPage() {
                 </div>
             )}
 
-            {/* Summary bar */}
+            {/* Zakat breakdown by section */}
+            {yearAssets.length > 0 && (
+                <div className="rounded-2xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] p-5">
+                    <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-4">
+                        Zakat Breakdown by Section
+                    </h3>
+                    <div className="space-y-3">
+                        {tabBreakdown.filter((t) => t.gross > 0).map((t) => (
+                            <div key={t.key} className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                                    <t.icon size={14} className="text-emerald-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold text-white/70">{t.label}</p>
+                                    <p className="text-[10px] text-white/30">
+                                        Gross {formatCurrency(t.gross)} → Net {formatCurrency(t.net)}
+                                    </p>
+                                </div>
+                                <p className="text-sm font-bold text-emerald-400">{formatCurrency(t.zakat)}</p>
+                            </div>
+                        ))}
+                        <div className="border-t border-white/[0.06] pt-3 flex items-center justify-between">
+                            <p className="text-xs font-semibold text-white/50">Total Zakat on Assets</p>
+                            <p className="text-base font-bold text-emerald-400">
+                                {formatCurrency(tabBreakdown.reduce((s, t) => s + t.zakat, 0))}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Overall summary */}
             {yearAssets.length > 0 && (
                 <div className="rounded-2xl bg-surface/60 backdrop-blur-xl border border-white/[0.06] p-5">
                     <div className="grid grid-cols-3 gap-4 text-center">
@@ -394,14 +511,16 @@ export default function AssetsPage() {
                 </div>
             )}
 
-            {/* ─── Add Form Modal ─────────────────────────────────── */}
+            {/* ─── Add / Edit Form Modal ───────────────────────── */}
             {showForm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowForm(false)} />
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowForm(false); setEditingAsset(null); }} />
                     <div className="relative w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-[#1a1d27] border border-white/[0.08] shadow-2xl p-6">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-base font-semibold text-white">Add {activeTab} Asset</h2>
-                            <button onClick={() => setShowForm(false)} className="p-2 rounded-lg hover:bg-white/10 text-white/40">
+                            <h2 className="text-base font-semibold text-white">
+                                {editingAsset ? 'Edit Asset' : `Add ${activeTab} Asset`}
+                            </h2>
+                            <button onClick={() => { setShowForm(false); setEditingAsset(null); }} className="p-2 rounded-lg hover:bg-white/10 text-white/40">
                                 <X size={18} />
                             </button>
                         </div>
@@ -682,11 +801,11 @@ export default function AssetsPage() {
                             )}
 
                             <button
-                                onClick={handleAdd}
+                                onClick={editingAsset ? handleUpdate : handleAdd}
                                 disabled={isGoldSilver && !isETF && !weightInput}
                                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
                             >
-                                Add Asset
+                                {editingAsset ? 'Save Changes' : 'Add Asset'}
                             </button>
                         </div>
                     </div>
