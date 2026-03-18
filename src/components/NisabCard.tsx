@@ -127,7 +127,7 @@ export default function NisabCard({
                                     padding: '8px 12px',
                                     boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
                                 }}
-                                formatter={(value: number) => [formatCurrency(value), 'Nisab']}
+                                formatter={(value: any) => [formatCurrency(Number(value) || 0), 'Nisab']}
                                 labelStyle={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#64748b', fontSize: '11px', marginBottom: '4px' }}
                             />
                             <Area
