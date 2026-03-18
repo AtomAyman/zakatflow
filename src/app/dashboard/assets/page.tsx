@@ -909,17 +909,17 @@ export default function AssetsPage() {
                             {/* Debt receivable strength */}
                             {newType === 'Debt_Receivable' && (
                                 <div className="space-y-3">
-                                    <label className="block text-xs text-white/40">Debt Strength</label>
+                                    <label className="block text-xs text-muted-foreground font-medium">Debt Strength</label>
                                     <div className="grid grid-cols-3 gap-2">
                                         {(['Strong', 'Intermediate', 'Weak'] as const).map((s) => (
                                             <button key={s} type="button" onClick={() => setDebtStrength(s)}
                                                 className={`px-2 py-2 rounded-xl text-[10px] font-medium transition-all ${debtStrength === s
-                                                    ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
-                                                    : 'bg-white/[0.04] text-white/50 border border-white/[0.06]'}`}
+                                                    ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 shadow-sm'
+                                                    : 'bg-secondary text-muted-foreground border border-border hover:bg-secondary/80'}`}
                                             >{s}</button>
                                         ))}
                                     </div>
-                                    <p className="text-[10px] text-white/20">
+                                    <p className="text-[10px] text-muted-foreground">
                                         {debtStrength === 'Strong' && 'Debt for merchandise or loaned cash — zakatable immediately.'}
                                         {debtStrength === 'Intermediate' && 'Debt for non-trade goods — zakatable only after received.'}
                                         {debtStrength === 'Weak' && 'Inheritance, mahr, wages not yet received — zakatable only after received.'}
@@ -929,10 +929,10 @@ export default function AssetsPage() {
 
                             {/* Valuation % */}
                             {!isGoldSilver && newType !== 'Retirement' && newType !== 'Crypto' && newType !== 'Debt_Receivable' && (
-                                <div>
-                                    <label className="block text-xs text-white/40 mb-2">Zakatable % (default 100%)</label>
+                                <div className="mt-4">
+                                    <label className="block text-xs text-muted-foreground font-medium mb-2">Zakatable % (default 100%)</label>
                                     <input type="number" value={newValuation} onChange={(e) => setNewValuation(e.target.value)} placeholder="100"
-                                        className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder-white/20 text-sm focus:outline-none focus:border-emerald-500/40 transition-all"
+                                        className="w-full px-4 py-3 rounded-xl bg-background border border-input text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all shadow-sm"
                                     />
                                 </div>
                             )}
