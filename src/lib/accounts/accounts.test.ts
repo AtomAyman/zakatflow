@@ -29,9 +29,31 @@ describe('tax tables', () => {
         expect(incomeTax(125_140, { country: 'UK' }).tax).toBeCloseTo(7_540 + 34_976, 6);
     });
 
+    it('taxable income from a return skips the standard deduction', () => {
+        const fromReturn = incomeTax(73_900, { country: 'US', filingStatus: 'single', incomeIsTaxable: true }).tax;
+        expect(fromReturn).toBeCloseTo(incomeTax(90_000, { country: 'US', filingStatus: 'single' }).tax, 6);
+    });
+
     it('provinces without a bracket table are approximate', () => {
-        expect(incomeTax(80_000, { country: 'CA', region: 'NS' }).approximate).toBe(true);
-        expect(incomeTax(80_000, { country: 'CA', region: 'ON' }).approximate).toBe(false);
+        expect(incomeTax(80_000, { country: 'CA', region: 'PE' }).approximate).toBe(true);
+        expect(incomeTax(80_000, { country: 'CA', region: 'NS' }).approximate).toBe(false);
+    });
+
+    it('Ontario C$100k: basic personal amounts are credits at the lowest rate, plus surtax (worked by hand)', () => {
+        const federal = 58_523 * 0.14 + (100_000 - 58_523) * 0.205 - 16_452 * 0.14;
+        const onBasic = 53_891 * 0.0505 + (100_000 - 53_891) * 0.0915 - 12_989 * 0.0505;
+        const surtax = 0.2 * (onBasic - 5_818);
+        expect(incomeTax(100_000, { country: 'CA', region: 'ON' }).tax).toBeCloseTo(federal + onBasic + surtax, 6);
+    });
+
+    it('US states use their own brackets and deductions (California, single, $100k)', () => {
+        const federal = incomeTax(100_000, { country: 'US', filingStatus: 'single' }).tax;
+        const ca = incomeTax(100_000, { country: 'US', region: 'CA', filingStatus: 'single' }).tax - federal;
+        // CA taxable = 100,000 − 5,540: brackets 1/2/4/6/8/9.3%
+        const t = 94_460;
+        const expected = 10_756 * 0.01 + (25_499 - 10_756) * 0.02 + (40_245 - 25_499) * 0.04 + (55_866 - 40_245) * 0.06 + (70_606 - 55_866) * 0.08 + (t - 70_606) * 0.093;
+        expect(ca).toBeCloseTo(expected, 6);
+        expect(incomeTax(100_000, { country: 'US', region: 'TX', filingStatus: 'single' }).tax).toBeCloseTo(federal, 6);
     });
 });
 
@@ -49,8 +71,8 @@ describe('the user’s example: $100k 401(k), age 40', () => {
         expect(line(e, 'penalty')).toBe(10_000);
         expect(line(e, 'source_tax')).toBe(30_000);
         expect(line(e, 'residence_tax')).toBeGreaterThan(0);
-        expect(e.net).toBeGreaterThan(50_000);
-        expect(e.net).toBeLessThan(56_000);
+        expect(e.net).toBeGreaterThan(45_000);
+        expect(e.net).toBeLessThan(52_000);
         expect(e.approximate).toBe(true);
 
         const z = accountZakat(e, holdings);

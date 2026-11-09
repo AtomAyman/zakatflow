@@ -85,10 +85,10 @@ We deduct only costs that are certain on the Zakat date: tax, penalties and gran
 
 | Account | In hand, each alone | In hand, all together |
 |---|---|---|
-| FHSA | 68.5% | 64.8% |
+| FHSA | 60.6% | 57.0% |
 | TFSA | 100% | 100% |
-| 401(k) | 59.9% | 54.8% |
-| RRSP | 69.7% | 64.8% |
+| 401(k) | 52.4% | 47.0% |
+| RRSP | 61.9% | 57.0% |
 
 If the FHSA is for a first home, it's tax-free and drops out of the stack, which lowers the tax on the others.
 
@@ -99,7 +99,15 @@ Where you **live** for tax purposes can change what you'd get from an account mo
 - whether you're a **US citizen or green-card holder** (the US taxes these people wherever they live);
 - age and other income this year.
 
-**How tax is estimated:**
+**How income tax is estimated:** the same way take-home-pay calculators (salaryaftertax and similar) do it. We're estimating, not filing a return:
+- **US:** federal brackets and standard deduction, plus that state's own brackets and deduction (Tax Foundation table, all 50 states and DC). City taxes such as NYC's are not included.
+- **Canada:** federal and provincial brackets. Basic personal amounts are credits at the lowest rate. The Ontario surtax is included.
+- **UK:** bands, with the personal allowance withdrawn above £100k.
+- **Not modelled:** dependants, itemized deductions, losses and other credits. They change your total tax, but barely change the **extra** tax a withdrawal adds.
+- **Payroll taxes** (FICA, CPP/EI, National Insurance) are left out because they don't apply to retirement-account withdrawals.
+- **Optional, for more accuracy:** enter the *taxable income* from last year's return (US Form 1040 line 15, Canada line 26000) instead of salary. Deductions are already in that figure, so the standard deduction is skipped.
+
+**How cross-border tax is estimated:**
 1. **Charges tied to the account** apply wherever you live and aren't credited abroad:
    - the US 10% (or 20%/25%) additional taxes;
    - RESP grant repayment and the 20% extra tax on growth;
@@ -118,19 +126,19 @@ Where you **live** for tax purposes can change what you'd get from an account mo
 |---|---|
 | US 10% early-withdrawal tax | −$10,000 |
 | US 30% non-resident withholding | −$30,000 |
-| Extra Canadian tax after the credit for the US $30,000 | ≈ −$6,100 |
-| **In hand** | **≈ $53,900 (53.9%)** |
+| Extra Canadian tax after the credit for the US $30,000 | ≈ −$13,300 |
+| **In hand** | **≈ $46,700 (46.7%)** |
 
 Each holding is then scaled to its in-hand share before its own Zakatable % applies:
 
-| Holding | Value | In hand (53.9%) | Zakatable % | Zakat |
+| Holding | Value | In hand (46.7%) | Zakatable % | Zakat |
 |---|---|---|---|---|
-| NVDA | $20,000 | $10,787 | 47.2% (from filings) | $127.28 |
-| AAPL | $30,000 | $16,180 | 38.3% (from filings) | $154.92 |
-| MU | $10,000 | $5,393 | 30% (estimated) | $40.45 |
-| Gold ETF | $20,000 | $10,787 | 100% | $269.67 |
-| Cash | $20,000 | $10,787 | 100% | $269.67 |
-| **Total** | **$100,000** | **$53,934** | | **$861.99** |
+| NVDA | $20,000 | $9,348 | 47.2% (from filings) | $110.31 |
+| AAPL | $30,000 | $14,022 | 38.3% (from filings) | $134.26 |
+| MU | $10,000 | $4,674 | 30% (estimated) | $35.06 |
+| Gold ETF | $20,000 | $9,348 | 100% | $233.70 |
+| Cash | $20,000 | $9,348 | 100% | $233.70 |
+| **Total** | **$100,000** | **$46,741** | | **$747.03** |
 
 The same account for a Texas resident leaves about $66,600 in hand (Zakat ≈ $1,065).
 
