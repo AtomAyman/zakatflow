@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { accountZakat } from './account-zakat';
 import { incomeTax, incrementalTax } from './tax-tables';
-import { estimateWithdrawal, ukPensionAccessAge, type TaxProfile } from './withdrawal';
+import { estimatePortfolio, estimateWithdrawal, ukPensionAccessAge, type AccountInput, type TaxProfile } from './withdrawal';
 
 const rates = { USD: 1, CAD: 0.73, GBP: 1.3 };
 const AS_OF = '2026-11-09';
@@ -167,5 +167,43 @@ describe('other account types', () => {
     it('warns when holdings do not add up to the balance', () => {
         const e = estimateWithdrawal({ type: 'CA_TFSA', balance: 10_000 }, ontario, rates, AS_OF);
         expect(accountZakat(e, [{ name: 'XEQT', value: 8_000, zakatablePercent: 30 }]).warnings.some((w) => w.includes('uninvested cash'))).toBe(true);
+    });
+});
+
+describe('portfolio: several accounts withdrawn together (user scenario)', () => {
+    // Non-US-citizen Ontario resident, age 35, C$100k salary.
+    const profile: TaxProfile = { residence: { country: 'CA', region: 'ON' }, usPerson: false, age: 35, annualIncome: 100_000 };
+    const accounts: AccountInput[] = [
+        { type: 'CA_FHSA', balance: 40_000 },
+        { type: 'CA_TFSA', balance: 35_000 },
+        { type: 'US_401K', balance: 20_000 },
+        { type: 'CA_RRSP', balance: 30_000 },
+    ];
+    const stacked = estimatePortfolio(accounts, profile, rates, AS_OF);
+    const separate = accounts.map((a) => estimateWithdrawal(a, profile, rates, AS_OF));
+
+    it('TFSA is untouched; taxable accounts lose more when their withdrawals stack', () => {
+        expect(stacked[1].netFraction).toBe(1);
+        for (const i of [0, 2, 3]) expect(stacked[i].net).toBeLessThan(separate[i].net);
+    });
+
+    it('Canadian tax shares add up to the tax on all withdrawals together', () => {
+        const taxableCad = 40_000 + 20_000 / 0.73 + 30_000; // 401(k) converted USD → CAD
+        const total = incrementalTax(100_000, taxableCad, profile.residence).tax;
+        const fhsa = stacked[0].lines.find((l) => l.key === 'domestic_tax')!.amount;
+        const rrsp = stacked[3].lines.find((l) => l.key === 'domestic_tax')!.amount;
+        expect(fhsa / 40_000).toBeCloseTo(rrsp / 30_000, 9); // same average rate
+        expect(fhsa).toBeCloseTo(total * (40_000 / taxableCad), 6);
+    });
+
+    it('401(k): US withholding and penalty unchanged; Canada adds only tax beyond the US credit', () => {
+        expect(stacked[2].lines.find((l) => l.key === 'source_tax')!.amount).toBe(6_000);
+        expect(stacked[2].lines.find((l) => l.key === 'penalty')!.amount).toBe(2_000);
+    });
+
+    it('a first-home FHSA is tax-free and drops out of the stack', () => {
+        const withHome = estimatePortfolio([{ ...accounts[0], qualifyingUse: true }, ...accounts.slice(1)], profile, rates, AS_OF);
+        expect(withHome[0].netFraction).toBe(1);
+        expect(withHome[3].net).toBeGreaterThan(stacked[3].net);
     });
 });

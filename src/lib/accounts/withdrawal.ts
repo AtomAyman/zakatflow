@@ -122,18 +122,40 @@ const NON_RESIDENT_LUMP_SUM_RATE: Record<Country, { rate: number; note: string }
     },
 };
 
+interface PreparedAccount {
+    lines: WithdrawalLine[];
+    warnings: string[];
+    /** Part of the withdrawal subject to income tax, in the account's currency. */
+    taxable: number;
+    lockedReason?: string;
+}
+
+/**
+ * Taxes for a whole set of accounts withdrawn together, so the incremental
+ * tax is stacked on one income rather than each account starting from the salary.
+ * Values are this account's share, in the residence currency (US tax in USD).
+ */
+export interface StackedTax {
+    residenceTax: number;
+    usCitizenTax: number;
+    approximate: boolean;
+    notes: string[];
+}
+
 export function estimateWithdrawal(
     account: AccountInput,
     profile: TaxProfile,
     rates: UsdRates,
-    asOf: string = new Date().toISOString().slice(0, 10)
+    asOf: string = new Date().toISOString().slice(0, 10),
+    stacked?: StackedTax
 ): WithdrawalEstimate {
-    const country = accountCountry(account.type);
-    const cur = ACCOUNT_CURRENCY[country];
-    const resCur = ACCOUNT_CURRENCY[profile.residence.country];
+    const prep = prepareAccount(account, profile, asOf);
+    return finishEstimate(account, profile, rates, prep, stacked);
+}
+
+function prepareAccount(account: AccountInput, profile: TaxProfile, asOf: string): PreparedAccount {
     const lines: WithdrawalLine[] = [];
     const warnings: string[] = [];
-    let approximate = false;
     const age = profile.age;
     const t = account.type;
 
@@ -211,6 +233,27 @@ export function estimateWithdrawal(
         taxable = vested * 0.75; // 25% tax-free lump sum
     }
 
+    return { lines, warnings, taxable, lockedReason };
+}
+
+/** Taxable amount of an account if withdrawn today, in the account's currency. */
+export function taxableOnWithdrawal(account: AccountInput, profile: TaxProfile, asOf: string): number {
+    return prepareAccount(account, profile, asOf).taxable;
+}
+
+function finishEstimate(
+    account: AccountInput,
+    profile: TaxProfile,
+    rates: UsdRates,
+    prep: PreparedAccount,
+    stacked?: StackedTax
+): WithdrawalEstimate {
+    const country = accountCountry(account.type);
+    const cur = ACCOUNT_CURRENCY[country];
+    const resCur = ACCOUNT_CURRENCY[profile.residence.country];
+    const { lines, warnings, taxable, lockedReason } = prep;
+    let approximate = false;
+
     // ── 2. Income tax on the taxable part ──
     if (taxable > 0) {
         const res = profile.residence;
@@ -221,8 +264,14 @@ export function estimateWithdrawal(
             warnings.push(...result.notes.filter((n) => !warnings.includes(n)));
             return convert(result.tax, rc, cur, rates);
         };
+        if (stacked) {
+            if (stacked.approximate) approximate = true;
+            warnings.push(...stacked.notes.filter((n) => !warnings.includes(n)));
+        }
 
-        const residenceTax = taxIn(res, profile.annualIncome, taxable);
+        const residenceTax = stacked
+            ? convert(stacked.residenceTax, resCur, cur, rates)
+            : taxIn(res, profile.annualIncome, taxable);
         const domestic = res.country === country;
 
         if (domestic && !(profile.usPerson && res.country !== 'US')) {
@@ -246,8 +295,12 @@ export function estimateWithdrawal(
             // A US person abroad is also taxed by the US as a citizen.
             let usCitizenTax = 0;
             if (profile.usPerson && res.country !== 'US') {
-                const incomeUsd = convert(profile.annualIncome, resCur, 'USD', rates);
-                usCitizenTax = taxIn({ country: 'US', filingStatus: res.filingStatus }, incomeUsd, taxable);
+                if (stacked) {
+                    usCitizenTax = convert(stacked.usCitizenTax, 'USD', cur, rates);
+                } else {
+                    const incomeUsd = convert(profile.annualIncome, resCur, 'USD', rates);
+                    usCitizenTax = taxIn({ country: 'US', filingStatus: res.filingStatus }, incomeUsd, taxable);
+                }
             }
             // Foreign tax credits ≈ you end up paying the highest jurisdiction's tax.
             const total = Math.max(sourceTax, residenceTax, usCitizenTax);
@@ -290,4 +343,49 @@ export function estimateWithdrawal(
 
 function fmt(n: number): string {
     return Math.round(n).toLocaleString('en-US');
+}
+
+/**
+ * Estimate every account as if all were withdrawn together on the Zakat date.
+ * Taxable withdrawals are stacked on one income, so the brackets they push
+ * into are shared out across accounts in proportion to their taxable amounts.
+ * This is the default for the app: it answers "what would I have in hand if I
+ * cashed out everything today?". Locked accounts are left out of the stack.
+ */
+export function estimatePortfolio(
+    accounts: AccountInput[],
+    profile: TaxProfile,
+    rates: UsdRates,
+    asOf: string = new Date().toISOString().slice(0, 10)
+): WithdrawalEstimate[] {
+    const res = profile.residence;
+    const resCur = ACCOUNT_CURRENCY[res.country];
+    const preps = accounts.map((a) => prepareAccount(a, profile, asOf));
+    const taxableRes = preps.map((p, i) =>
+        p.lockedReason ? 0 : convert(p.taxable, ACCOUNT_CURRENCY[accountCountry(accounts[i].type)], resCur, rates)
+    );
+    const totalRes = taxableRes.reduce((s, x) => s + x, 0);
+    const resTotal = incrementalTax(profile.annualIncome, totalRes, res);
+
+    let usTotal = 0;
+    let usBase = 0;
+    const taxableUsd = taxableRes.map((x) => convert(x, resCur, 'USD', rates));
+    if (profile.usPerson && res.country !== 'US') {
+        usBase = taxableUsd.reduce((s, x) => s + x, 0);
+        usTotal = incrementalTax(convert(profile.annualIncome, resCur, 'USD', rates), usBase, {
+            country: 'US',
+            filingStatus: res.filingStatus,
+        }).tax;
+    }
+
+    return accounts.map((a, i) => {
+        const share = totalRes > 0 ? taxableRes[i] / totalRes : 0;
+        const usShare = usBase > 0 ? taxableUsd[i] / usBase : 0;
+        return finishEstimate(a, profile, rates, preps[i], {
+            residenceTax: resTotal.tax * share,
+            usCitizenTax: usTotal * usShare,
+            approximate: resTotal.approximate,
+            notes: resTotal.notes,
+        });
+    });
 }

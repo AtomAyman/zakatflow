@@ -77,6 +77,21 @@ We deduct only costs that are certain on the Zakat date: tax, penalties and gran
 
 ---
 
+**Product decision (November 2026):** early-withdrawal penalties and income tax **are deducted**. The Guide doesn't address this, and NZF Canada, Assad Wealth and the Zakat Foundation of America all deduct them.
+
+**Salary and existing tax:** the user enters their salary and tax region once. Their existing tax is worked out from that, so each withdrawal is taxed only on what it **adds** on top of the salary.
+
+**All accounts together:** the app assumes **every account is cashed out on the Zakat date**. Taxable withdrawals are stacked on one income, and the resulting tax is shared across the accounts in proportion to each one's taxable amount. A non-US Ontario resident earning C$100k with an FHSA (C$40k, not for a home), TFSA (C$35k), 401(k) (US$20k) and RRSP (C$30k):
+
+| Account | In hand, each alone | In hand, all together |
+|---|---|---|
+| FHSA | 68.5% | 64.8% |
+| TFSA | 100% | 100% |
+| 401(k) | 59.9% | 54.8% |
+| RRSP | 69.7% | 64.8% |
+
+If the FHSA is for a first home, it's tax-free and drops out of the stack, which lowers the tax on the others.
+
 ### 3.1 Tax residency and accounts in another country
 
 Where you **live** for tax purposes can change what you'd get from an account more than the account itself. The app asks once, in Settings:
@@ -264,7 +279,7 @@ Age, tax bracket and province or state come from Settings and are entered once.
 
 ## 11. Open questions for scholar review
 
-1. The Guide treats 401(k)s and IRAs as long-term investments. **Should the early-withdrawal penalty and income tax be deducted first?** If so, at the marginal tax rate or the withholding rate?
+1. ~~Should the early-withdrawal penalty and income tax be deducted?~~ **Decided: yes**, using the actual tax the withdrawal would add (section 3).
 2. Workplace plans that forbid any withdrawal while employed: Zakatable like an IRA, or treated like the Guide's mandatory pensions (not due until received)?
 3. UK defined-contribution pensions locked until 55/57: Zakatable yearly (as NZF UK holds), or not due until access?
 4. Should the HSA 20% penalty be deducted when the money may be spent on medical care?
