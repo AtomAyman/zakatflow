@@ -68,7 +68,7 @@ This is the biggest point of difference among scholars. We show the user **one s
 | Component | How we estimate it |
 |---|---|
 | Early-withdrawal penalty | Fixed by account type and the owner's age (sections 4–6) |
-| Income tax on the withdrawal | **Proposed default:** the user's marginal federal + state/provincial rate from Settings (already in the app) **[Confirm with Muftī]**: the Guide doesn't address deducting withdrawal tax or penalties. NZF Canada, Assad Wealth and the Zakat Foundation of America do deduct them. NZF Canada uses the RRSP **withholding** rate instead (10/20/30%; 5/10/15% in Quebec). Withholding is only a prepayment of tax, so it understates the real cost for higher earners and overstates it for lower earners. We'll show the withholding figure as a note. |
+| Income tax on the withdrawal | **Proposed default:** the real tax the withdrawal would add, using 2026 brackets for the user's income and residence (section 3.1). A large withdrawal crosses several brackets, so one marginal rate is inaccurate **[Confirm with Muftī]**: the Guide doesn't address deducting withdrawal tax or penalties. NZF Canada, Assad Wealth and the Zakat Foundation of America do deduct them. NZF Canada uses the RRSP **withholding** rate instead (10/20/30%; 5/10/15% in Quebec). Withholding is only a prepayment of tax, so it understates the real cost for higher earners and overstates it for lower earners. We'll show the withholding figure as a note. |
 | Tax-free portions | Roth contributions, TFSA, ISA, 25% UK pension lump sum and similar portions have no tax |
 | Grants that must be repaid | RESP (CESG), RDSP (grants and bonds within 10 years), Lifetime ISA bonus: deducted, because you'd lose them |
 | Vesting | Unvested employer contributions are excluded entirely (they aren't yours yet) |
@@ -76,6 +76,50 @@ This is the biggest point of difference among scholars. We show the user **one s
 We deduct only costs that are certain on the Zakat date: tax, penalties and grant repayments. Brokerage fees are ignored because they're immaterial.
 
 ---
+
+### 3.1 Tax residency and accounts in another country
+
+Where you **live** for tax purposes can change what you'd get from an account more than the account itself. The app asks once, in Settings:
+- country and state/province of tax residence;
+- whether you're a **US citizen or green-card holder** (the US taxes these people wherever they live);
+- age and other income this year.
+
+**How tax is estimated:**
+1. **Charges tied to the account** apply wherever you live and aren't credited abroad:
+   - the US 10% (or 20%/25%) additional taxes;
+   - RESP grant repayment and the 20% extra tax on growth;
+   - the Lifetime ISA 25% charge.
+
+   Whether Canada credits the US 10% is disputed, so we treat it as not credited.
+2. **The account's country** withholds tax if you aren't resident there:
+   - US: 30% on a lump sum paid to a non-resident non-citizen (treaty rates such as 15% cover only periodic payments);
+   - Canada: 25% non-resident tax on RRSP/RRIF lump sums;
+   - UK pensions: usually taxed only where you live.
+3. **Your country of residence** taxes the withdrawal as income: the tax on your income plus the withdrawal, minus the tax on your income alone, using 2026 brackets. It gives a credit for the foreign tax. In effect **you pay the higher of the two countries' tax**, plus the charges in step 1.
+
+**Example:** a $100,000 401(k), owner aged 40 with C$90,000 other income, living in Ontario, not a US citizen.
+
+| | Amount |
+|---|---|
+| US 10% early-withdrawal tax | −$10,000 |
+| US 30% non-resident withholding | −$30,000 |
+| Extra Canadian tax after the credit for the US $30,000 | ≈ −$6,100 |
+| **In hand** | **≈ $53,900 (53.9%)** |
+
+Each holding is then scaled to its in-hand share before its own Zakatable % applies:
+
+| Holding | Value | In hand (53.9%) | Zakatable % | Zakat |
+|---|---|---|---|---|
+| NVDA | $20,000 | $10,787 | 47.2% (from filings) | $127.28 |
+| AAPL | $30,000 | $16,180 | 38.3% (from filings) | $154.92 |
+| MU | $10,000 | $5,393 | 30% (estimated) | $40.45 |
+| Gold ETF | $20,000 | $10,787 | 100% | $269.67 |
+| Cash | $20,000 | $10,787 | 100% | $269.67 |
+| **Total** | **$100,000** | **$53,934** | | **$861.99** |
+
+The same account for a Texas resident leaves about $66,600 in hand (Zakat ≈ $1,065).
+
+Cross-border results are labelled **approximate**. Tax treaties have exceptions we don't model (for example, a Canadian resident can transfer a 401(k) lump sum into an RRSP). The user can always enter their own expected in-hand amount instead.
 
 ## 4. United States
 
