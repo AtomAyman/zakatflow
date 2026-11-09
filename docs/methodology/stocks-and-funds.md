@@ -2,16 +2,18 @@
 
 *Methodology v0.1 (draft for scholar review). Last updated November 2026.*
 
-> **Status:** This is a draft. Items marked **[Scholar review]** are proposed
-> defaults that our reviewing scholar has not yet approved. Nothing in this
-> document is a fatwa; where scholars differ, we explain the options.
+> **Fiqh source of truth:** *A Guide to Zakāt* by Muftī Mohammed Wahaajuddin
+> (Tawheed Center, Farmington Hills, MI, 2021), cited below as **"the Guide"**.
+> Where the Guide rules, we follow it. Items marked **[Confirm with Muftī]**
+> are cases the Guide doesn't address directly; we propose a default
+> consistent with it, to be confirmed. Nothing here is a fatwa.
 
 ---
 
 ## 1. The short version
 
 - **Shares you trade or plan to sell within a year:** Zakat is due on their **full market value**, the same as cash.
-- **Shares you hold long-term:** Zakat is due only on **your share of the company's Zakatable assets**: its cash, short-term investments, money owed to it, and stock-in-trade (inventory). Buildings, machinery, patents and other fixed assets are not Zakatable.
+- **Shares you hold long-term:** Zakat is due only on the **part of each share's value that the company holds in Zakatable assets**: its cash, short-term investments, money owed to it, and stock-in-trade (inventory). Buildings, machinery, patents and other fixed assets are not Zakatable (the Guide, "Zakāt on Stocks").
 - **ETFs and mutual funds:** we look inside the fund, apply the rule above to every company it holds, and add the results up in proportion to what the fund holds.
 - **When a company's figures aren't available**, we use the widely accepted scholarly estimate: **30% of market value** is treated as Zakatable.
 - **Every figure shows where it came from.** Each holding is labelled as *Calculated*, *Check*, *Estimated* or *Your figure* (section 4), with a link to the company filing we used.
@@ -28,31 +30,33 @@ We read these lines from the company's most recent balance sheet:
 |---|---|
 | Cash and cash equivalents | Property, plant and equipment |
 | Short-term investments and marketable securities | Goodwill, patents, brands and other intangibles |
-| Receivables: money customers and others owe the company **[Scholar review]** | Long-term investments |
+| Receivables: money customers and others owe the company **[Confirm with Muftī]** | Long-term investments |
 | Inventory: raw materials, work in progress, finished goods | Prepaid expenses, deferred tax and other current assets that are not cash, money owed or goods for sale |
+
+The Guide's example counts cash, raw materials, work in progress and finished goods. We also count receivables, because the Guide treats money owed for goods sold as a *strong debt* that is Zakatable every year ("Debts Receivable"). We count short-term investments as cash equivalents.
 
 ### 2.2 The formula
 
-**Proposed default: your share of the company's Zakatable assets [Scholar review]**
+**Default: the Guide's method, the Zakatable ratio applied to the share's value**
+
+```
+Zakatable ratio       = Company's Zakatable assets ÷ Company's total assets
+Your Zakatable amount = Market value of your holding × Zakatable ratio
+Zakat due             = Your Zakatable amount × 2.5%   (2.577% on a Gregorian year)
+```
+
+From the Guide: *"When purchased as a long-term investment, the percentage of non-zakātable items owned by the company are deducted from the value of the share. For example, a company's stock is valued at $100 … [cash, raw material, produced goods and goods being processed] = 40% total … Zakāt will only be due on $40."*
+
+**Alternative: Zakatable assets per share (AAOIFI / Sh. Joe Bradford / NZF Canada)**
 
 ```
 Zakatable assets per share = Company's Zakatable assets ÷ Shares outstanding
 Your Zakatable amount      = Shares you own × Zakatable assets per share
-Zakat due                  = Your Zakatable amount × 2.5%   (2.577% on a Gregorian year)
 ```
 
-This follows AAOIFI Shari'ah Standard 35 and Sheikh Joe Bradford's *Simple Zakat Guide*, and it doesn't depend on the share price. We **cap the Zakatable amount at the market value of your holding**. A bank or a distressed company can hold more liquid assets than its whole market value, and we won't ask you to pay Zakat on more than you own.
+This uses balance-sheet values instead of the share price, so for most large companies it gives a **lower** figure than the Guide's method. We cap it at the market value of your holding. You can pick it under *Settings → Calculation method*.
 
-**Alternative: asset ratio applied to market value**
-
-```
-Zakatable ratio     = Company's Zakatable assets ÷ Company's total assets
-Your Zakatable amount = Market value of your holding × Zakatable ratio
-```
-
-This is the method in our reference Fiqh guide. It gives a higher figure for companies whose share price is far above their book value, such as large technology companies. You can pick it under *Settings → Calculation method*.
-
-**Not deducted by default: the company's short-term debts [Scholar review]**
+**Not deducted by default: the company's short-term debts [Confirm with Muftī]**
 
 Some scholars subtract the company's current liabilities from its Zakatable assets. This often brings the result to zero, because many large companies owe more short-term than they hold. It's offered as the *AAOIFI net* method under *Settings → Calculation method*.
 
@@ -75,7 +79,7 @@ Some scholars subtract the company's current liabilities from its Zakatable asse
 |---|---|
 | Cash | 100% Zakatable |
 | Gold, silver or other commodities | 100% of market value |
-| Bonds and other debt **[Scholar review]** | 100% of market value (treated as money owed) |
+| Bonds and other debt **[Confirm with Muftī]** | 100% of market value (treated as money owed) |
 | Derivatives and swaps (leveraged or inverse funds) | Fund is *Estimated* at 30% |
 | Holdings we can't identify | That portion is *Estimated* at 30% |
 
@@ -103,7 +107,7 @@ The summary screen shows totals for each label, for example: *"$48,200 calculate
 
 ## 5. Edge cases
 
-### 5.1 Banks and insurers [Scholar review]
+### 5.1 Banks and insurers [Confirm with Muftī]
 Their balance sheets aren't split into short-term and long-term items, and most of their assets are loans. Until our scholar rules on them, banks and insurers are **Estimated at 30%**. Other financial companies that do split their balance sheet (such as health insurers) are calculated and labelled *Check*.
 
 ### 5.2 REITs
@@ -113,7 +117,7 @@ Rental property isn't Zakatable, so a REIT's Zakatable share is usually small: m
 Shell companies, SPACs and early-stage mining explorers hold mostly cash. Their calculated figure can approach 100% of market value. That is correct, not an error.
 
 ### 5.4 Foreign companies and ADRs
-Foreign companies that report to the SEC usually do so **once a year**, so their figures can be up to about 15 months old. An ADR may represent more or fewer than one ordinary share. Under the default method we apply the ADR ratio when we know it, and otherwise label the holding *Check*.
+Foreign companies that report to the SEC usually do so **once a year**, so their figures can be up to about 15 months old. An ADR may represent more or fewer than one ordinary share. Under the per-share method we apply the ADR ratio when we know it, and otherwise label the holding *Check*.
 
 ### 5.5 Multiple share classes
 For companies like Alphabet (GOOG/GOOGL) or Berkshire Hathaway (BRK.A/BRK.B), shares outstanding include all classes.
@@ -157,9 +161,9 @@ You may have a figure from your scholar or your own reading of a company's repor
 
 | Method | Summary |
 |---|---|
-| **NisabFlow default** **[Scholar review]** | Your share of the company's Zakatable assets (section 2.2) |
-| **Asset ratio** | Our reference guide's ratio applied to market value |
-| **AAOIFI net** | Default method, minus the company's short-term debts |
+| **The Guide (default)** | Zakatable ratio applied to the share's value (section 2.2) |
+| **Per share (AAOIFI / Bradford)** | Your share of the company's Zakatable assets |
+| **AAOIFI net** | Per-share method, minus the company's short-term debts |
 | **Simple 30%** | 30% of market value for every long-term holding |
 
 ---
@@ -173,11 +177,10 @@ You may have a figure from your scholar or your own reading of a company's repor
 
 ---
 
-## 9. Open questions for scholar review
+## 9. Questions for the Muftī (not addressed directly in the Guide)
 
-1. Default method: share of Zakatable assets (2.2, default) or asset ratio applied to market value (2.2, alternative)?
-2. Should receivables count as Zakatable?
-3. Should the company's short-term debts be deducted?
-4. How should banks and insurers be treated?
-5. Should bonds and other debt inside funds count at 100%?
-6. Should the Zakatable amount be capped at the holding's market value?
+1. Do a company's receivables count, by analogy with the Guide's strong-debt ruling?
+2. Should the company's short-term debts be deducted from its Zakatable assets?
+3. How should banks and insurers be treated, given most of their assets are loans?
+4. Should bonds and other debt inside funds count at 100%?
+5. For users who choose the per-share method, should it be capped at the holding's market value?
