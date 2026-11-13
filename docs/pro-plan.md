@@ -75,6 +75,15 @@ Break-even sketch for SnapTrade: $100/month platform + ~$1/user/month. At a Pro 
 - Label it plainly before connecting: "Linked mode: we hold a read-only connection to your broker. Your holdings still live only in your Sheet."
 - Plan entitlement must come from the server (signed), never from the user's Sheet.
 
+## Ideas from Sure (we-promise/sure), read Nov 13, 2026
+
+Sure is AGPL-3.0, so ideas only, no code.
+
+- Own-key broker connections with no aggregator: Trading 212 (API key, positions endpoint), IBKR Flex Web Service (token + query id), Questrade (personal refresh token, positions endpoint; single-use tokens that expire in 7 days). Free to run. Not yet checked whether these allow browser (CORS) calls; if not, a stateless pass-through.
+- CSV import: number format choice, comma/semicolon separator, date-format detection, downloadable template, a check step and dry-run summary, an exchange code column.
+- Frankfurter (keyless ECB FX rates) to replace the Yahoo FX call.
+- Not taken: trade-history holdings reconstruction, AI PDF statement reading (privacy), budgets/categories/bank feeds.
+
 ## Code foundation on this branch
 
 - `src/lib/plan.ts`: `Plan`, the feature catalogue (free vs Pro, core vs convenience), `hasFeature()`, `getPlan()` (always `free`; `NEXT_PUBLIC_PRO_PREVIEW=1` for local preview).
