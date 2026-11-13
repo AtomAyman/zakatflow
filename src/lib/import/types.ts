@@ -21,6 +21,7 @@ export interface ImportedHolding {
   currency?: string;           // ISO code if the source gives one
   marketValue?: number;        // in `currency`, if the source gives one
   accountName?: string;        // e.g. "RRSP - Questrade"
+  exchange?: string;           // exchange code if given, e.g. "TSX", "XNAS"
   accountType?: RetirementAccountType | 'Cash_Account';
   asOf?: string;               // YYYY-MM-DD the source's values are for
 }

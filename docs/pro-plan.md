@@ -1,6 +1,6 @@
 # ZakatFlow Pro: plan and account-linking decision
 
-Status: draft for Ayman, Nov 13, 2026. Nothing here is live; no billing, no aggregator account, no secrets.
+Status: draft for Ayman, updated Nov 13, 2026 (import added). Nothing here is live; no billing, no aggregator account, no secrets.
 
 ## The rule
 
@@ -30,7 +30,8 @@ So nothing was decided against Plaid or a paid tier. This plan turns the old rec
 | Choose your scholar's method, ruling cited on each line | Year-over-year Zakat comparison |
 | Hawl countdown + calendar (.ics) download | |
 | Record Zakat paid against Zakat due | |
-| Import holdings from a brokerage CSV, parsed in the browser | |
+| Import from a CSV, an old Zakat or net-worth sheet, or a screenshot, read in the browser | |
+| Import past Zakat years into History | |
 | Every year kept in your own Google Sheet; export everything | |
 
 Source of truth in code: `src/lib/plan.ts`. A core feature set to Pro throws at load time.
@@ -84,6 +85,40 @@ Sure is AGPL-3.0, so ideas only, no code.
 - Frankfurter (keyless ECB FX rates) to replace the Yahoo FX call.
 - Not taken: trade-history holdings reconstruction, AI PDF statement reading (privacy), budgets/categories/bank feeds.
 
+## Import and switching (built Nov 13, 2026)
+
+Goal from Ayman: bring in past Zakat calculations and finance records from anywhere (a brokerage CSV, a bank app screenshot, an old spreadsheet, another app) as easily as Treasury makes leaving Monarch.
+
+What Treasury does, from its own switch pages: you export Monarch's transactions CSV and balance history, Treasury shows your categories next to its own so you pick which to keep, and you review everything before it is written, with nothing landing twice. Treasury is a US AI finance app (about $12.99/month, bank links through Plaid). Its pages say nothing about reading screenshots.
+
+What we took: detect what the file is, map their labels to our types (and let the user change any), a review step before anything is saved, and duplicate detection. What we did not take: transactions and categories. Zakat needs one snapshot of what you own and owe, so transaction history is never read.
+
+Built on this branch, free for everyone:
+
+- **Import screen** (Dashboard → Import): drop a CSV/TSV or a screenshot. The app works out whether it holds brokerage holdings, account balances (a net-worth or old Zakat sheet, or a finance app's balance export) or past Zakat years, and the user can override it.
+- **Column matching** by name in English variants, a header found anywhere in the first 20 rows, comma/semicolon/tab files, and number formats like 1,234.56, 1.234,56 and 1 234,56. A balance history is cut down to the latest balance per account.
+- **Type suggestions** from account names (TFSA, RRSP, 401(k), Roth, ISA, mortgage, Visa, gold, crypto and so on). Guesses are outlined so the user checks them. Negative balances become debts.
+- **Review table**: tick or untick each row, change its type, name or value, pick the Zakat year. Rows already in the Sheet are marked and unticked, so the same file twice doesn't double anything.
+- **Past Zakat years** go into History (year, totals, Nisab, Zakat due and paid).
+- **Templates** for each kind, downloadable from the screen, for people keeping records by hand.
+- Saving uses the existing Sheet routes, one row at a time.
+
+### Screenshots and privacy
+
+Options considered:
+
+1. **On-device text reading (built, recommended).** tesseract.js runs in the browser; the screenshot never leaves the device. The reader's code and English language data download from a public CDN the first time, but no user data is sent. Weaker on cramped or stylised app screens, so every row says "read from a screenshot; check the amount".
+2. **An AI reader with the user's own API key (opt-in).** Much better at messy screenshots and PDFs, but the image goes to that AI provider. Costs us nothing. Only as a clearly labelled choice.
+3. **An AI reader we pay for.** The image goes through our server and we carry a per-use cost. Conflicts with "we never see your data" and near-$0 running cost. Not recommended.
+
+Recommendation: on-device by default and free. Option 2 is Ayman's call.
+
+### Still to do for import
+
+- Test with real exports (Wealthsimple, Questrade, Fidelity, Vanguard, Trading 212, Monarch, YNAB, Excel saved as CSV) and add presets only where matching fails.
+- Excel (.xlsx) files directly, and PDF statements.
+- Currency conversion to the base currency on import (Frankfurter).
+
 ## Code foundation on this branch
 
 - `src/lib/plan.ts`: `Plan`, the feature catalogue (free vs Pro, core vs convenience), `hasFeature()`, `getPlan()` (always `free`; `NEXT_PUBLIC_PRO_PREVIEW=1` for local preview).
@@ -91,9 +126,12 @@ Sure is AGPL-3.0, so ideas only, no code.
 - `src/lib/import/csv.ts`: generic brokerage CSV parser (finds the header row, maps columns by name, reports skipped rows).
 - `src/lib/import/index.ts`: source registry and `availableSources(plan, region)`.
 
-Not wired into the UI yet. Next steps, in order:
+- `src/lib/import/` also holds the table reader, type guesser, file parser, review drafts, screenshot text parser and on-device OCR, with 10 tests (`npm test`).
+- `src/app/dashboard/import/page.tsx`: the Import screen, linked from the sidebar.
 
-1. Import screen on Assets: pick CSV → review table → map each row to a Stock asset with the Filings method → save to Sheet.
+Next steps, in order:
+
+1. Try the Import screen with real exports; stocks land on the 30% estimate and are switched to Filings on the Assets page.
 2. Broker presets only where the generic parser fails (test with real Wealthsimple, Questrade, Fidelity, Vanguard, Trading 212 exports).
 3. Pro billing and entitlement (only when the first Pro feature is ready).
 4. SnapTrade as the first `LinkedHoldingsSource`, behind `linkedBrokerages`.
@@ -104,3 +142,5 @@ Not wired into the UI yet. Next steps, in order:
 2. Pricing model: annual subscription, pay-what-you-can, or a one-time Pro unlock per Zakat year?
 3. Does the free/Pro table match your line? In particular: emailed reminders and household as Pro.
 4. Wasiyyah: in ZakatFlow Pro later, or its own product?
+5. Screenshots: on-device only, or also an opt-in AI reader with the user's own key?
+6. Which real exports should import be tested against first?
