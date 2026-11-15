@@ -94,7 +94,7 @@ export default function ImportPage() {
                 });
             } catch (e) {
                 console.error(e);
-                setError('The screenshot reader could not start. Check your connection the first time you use it, then try again.');
+                setError('The screenshot reader could not start. Reload the page and try again.');
                 setStatus({ step: 'pick' });
             }
             return;

@@ -1,6 +1,6 @@
 # ZakatFlow Pro: plan and account-linking decision
 
-Status: draft for Ayman, updated Nov 13, 2026 (import added). Nothing here is live; no billing, no aggregator account, no secrets.
+Status: draft for Ayman, updated Nov 15, 2026 (import added; screenshots on-device only). Nothing here is live; no billing, no aggregator account, no secrets.
 
 ## The rule
 
@@ -103,15 +103,20 @@ Built on this branch, free for everyone:
 - **Templates** for each kind, downloadable from the screen, for people keeping records by hand.
 - Saving uses the existing Sheet routes, one row at a time.
 
-### Screenshots and privacy
+### Screenshots and privacy (decided Nov 15: privacy first)
 
-Options considered:
+Ayman (Nov 15): "Yes I wanna be privacy first". So screenshots are read on the device only, with no AI reader.
 
-1. **On-device text reading (built, recommended).** tesseract.js runs in the browser; the screenshot never leaves the device. The reader's code and English language data download from a public CDN the first time, but no user data is sent. Weaker on cramped or stylised app screens, so every row says "read from a screenshot; check the amount".
-2. **An AI reader with the user's own API key (opt-in).** Much better at messy screenshots and PDFs, but the image goes to that AI provider. Costs us nothing. Only as a clearly labelled choice.
-3. **An AI reader we pay for.** The image goes through our server and we carry a per-use cost. Conflicts with "we never see your data" and near-$0 running cost. Not recommended.
+How the web app does it today:
 
-Recommendation: on-device by default and free. Option 2 is Ayman's call.
+- Text is read in the browser with Tesseract (WebAssembly). The screenshot is never uploaded, stored or kept after reading.
+- The reader itself (worker, engine and English data, about 7 MB once) is served by ZakatFlow from `/ocr`, copied from npm at install. No third-party server is contacted, not even a CDN. The English data is then cached in the browser.
+- Only the rows the user ticks on the review screen are saved, to their own Sheet. The raw text is discarded.
+- Every amount read from a screenshot is flagged for the user to check.
+
+When there is a native app: Apple Vision on iOS and the bundled (not cloud) ML Kit text recognizer on Android, both on the device, with the same parse-and-confirm step and the same rule of never storing or uploading the image.
+
+Not offered: an AI reader with the user's own key, or one we pay for. Both send the image off the device.
 
 ### Still to do for import
 
@@ -142,5 +147,4 @@ Next steps, in order:
 2. Pricing model: annual subscription, pay-what-you-can, or a one-time Pro unlock per Zakat year?
 3. Does the free/Pro table match your line? In particular: emailed reminders and household as Pro.
 4. Wasiyyah: in ZakatFlow Pro later, or its own product?
-5. Screenshots: on-device only, or also an opt-in AI reader with the user's own key?
-6. Which real exports should import be tested against first?
+5. Which real exports should import be tested against first?
