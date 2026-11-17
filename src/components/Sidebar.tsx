@@ -15,6 +15,7 @@ import {
     X,
     Moon,
     Sun,
+    ScrollText,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import Logo from '@/components/Logo';
@@ -27,6 +28,7 @@ const navItems = [
     { href: '/dashboard/liabilities', label: 'Liabilities', icon: CreditCard },
     { href: '/dashboard/history', label: 'History', icon: History },
     { href: '/dashboard/donations', label: 'Donations', icon: Heart },
+    { href: '/dashboard/wasiyyah', label: 'Wasiyyah', icon: ScrollText },
     { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
 
