@@ -15,6 +15,8 @@ import { useState, useMemo } from 'react';
 export default function SettingsPage() {
     const { settings, setSettings, saveCurrentSettings, spreadsheetId, backupSpreadsheetId } = useZakatStore();
     const [saved, setSaved] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     const currentHijri = useMemo(() => {
         const h = gregorianToHijri(new Date());
@@ -33,9 +35,17 @@ export default function SettingsPage() {
     };
 
     const handleSave = async () => {
-        await saveCurrentSettings();
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
+        setSaving(true);
+        setSaveError(null);
+        try {
+            await saveCurrentSettings();
+            setSaved(true);
+            setTimeout(() => setSaved(false), 2000);
+        } catch {
+            setSaveError('Could not save to your sheet. Please try again.');
+        } finally {
+            setSaving(false);
+        }
     };
 
     return (
@@ -47,16 +57,22 @@ export default function SettingsPage() {
                         Configure your Zakat calculation preferences
                     </p>
                 </div>
+                <div className="flex flex-col items-end gap-1">
                 <button
                     onClick={handleSave}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-[0.98] ${saved
+                    disabled={saving}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-[0.98] disabled:opacity-60 ${saved
                         ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                         : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
                         }`}
                 >
                     {saved ? <Check size={14} /> : <Save size={14} />}
-                    {saved ? 'Saved!' : 'Save Settings'}
+                    {saved ? 'Saved!' : saving ? 'Saving…' : 'Save Settings'}
                 </button>
+                {saveError && (
+                    <p role="alert" className="text-xs text-destructive">{saveError}</p>
+                )}
+                </div>
             </div>
 
             {/* Madhab */}

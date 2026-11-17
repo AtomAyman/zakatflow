@@ -4,14 +4,21 @@ import { useState, useMemo } from 'react';
 import { useZakatStore } from '@/lib/store';
 import type { DonationEntry } from '@/lib/types';
 import { Plus, Trash2, X, Heart, Download, Calendar } from 'lucide-react';
-import { v4 as uuid } from 'uuid';
 
 export default function DonationsPage() {
-    const { selectedYear, settings } = useZakatStore();
+    const { selectedYear, settings, donations: allDonations, saveDonation, deleteDonation } = useZakatStore();
 
-    // Local state for donations (persisted via store if wired up, otherwise local)
-    const [donations, setDonations] = useState<DonationEntry[]>([]);
+    // Donations are stored in the user's sheet; show the selected Zakat year.
+    const donations = useMemo(
+        () =>
+            allDonations
+                .filter((d) => (d.zakatYear || d.date.slice(0, 4)) === selectedYear)
+                .sort((a, b) => b.date.localeCompare(a.date)),
+        [allDonations, selectedYear]
+    );
     const [showForm, setShowForm] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     // Form state
     const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
@@ -50,29 +57,42 @@ export default function DonationsPage() {
         setNewCategory('Zakat');
     };
 
-    const handleAdd = () => {
+    const handleAdd = async () => {
         if (!newAmount || Number(newAmount) <= 0) return;
-        const entry: DonationEntry = {
-            id: uuid(),
-            date: newDate,
-            amount: Number(newAmount),
-            recipient: newRecipient || 'Unspecified',
-            notes: newNotes,
-            category: newCategory,
-        };
-        setDonations(prev => [entry, ...prev]);
-        resetForm();
-        setShowForm(false);
+        setSaving(true);
+        setError(null);
+        try {
+            await saveDonation({
+                zakatYear: selectedYear,
+                date: newDate,
+                amount: Number(newAmount),
+                recipient: newRecipient || 'Unspecified',
+                notes: newNotes,
+                category: newCategory,
+            });
+            resetForm();
+            setShowForm(false);
+        } catch {
+            setError('Could not save this donation to your sheet. Please try again.');
+        } finally {
+            setSaving(false);
+        }
     };
 
-    const handleDelete = (id: string) => {
-        setDonations(prev => prev.filter(d => d.id !== id));
+    const handleDelete = async (id: string) => {
+        setError(null);
+        try {
+            await deleteDonation(id);
+        } catch {
+            setError('Could not delete this donation. Please try again.');
+        }
     };
 
     const exportCSV = () => {
         const headers = 'Date,Category,Amount,Recipient,Notes\n';
+        const quote = (v: string) => `"${v.replace(/"/g, '""')}"`;
         const rows = donations.map(d =>
-            `${d.date},${d.category},${d.amount},"${d.recipient}","${d.notes || ''}"`
+            [d.date, d.category, d.amount, quote(d.recipient), quote(d.notes || '')].join(',')
         ).join('\n');
         const blob = new Blob([headers + rows], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
@@ -195,12 +215,17 @@ export default function DonationsPage() {
                             <button onClick={() => setShowForm(false)}
                                 className="flex-1 py-2 rounded-md text-sm font-medium bg-secondary text-secondary-foreground border border-border hover:bg-secondary/80 transition-colors"
                             >Cancel</button>
-                            <button onClick={handleAdd}
-                                className="flex-1 py-2 rounded-md text-sm font-medium bg-rose-600 text-white hover:bg-rose-700 transition-colors shadow-sm"
-                            >Add Donation</button>
+                            <button onClick={handleAdd} disabled={saving}
+                                className="flex-1 py-2 rounded-md text-sm font-medium bg-rose-600 text-white hover:bg-rose-700 transition-colors shadow-sm disabled:opacity-60"
+                            >{saving ? 'Saving…' : 'Add Donation'}</button>
                         </div>
+                        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
                     </div>
                 </div>
+            )}
+
+            {error && !showForm && (
+                <p role="alert" className="text-sm text-destructive">{error}</p>
             )}
 
             {/* Donation List */}
