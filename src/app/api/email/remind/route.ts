@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
 /**
  * POST /api/email/remind
  * Sends Zakat anniversary reminders via Resend.
  *
+ * Requires a signed-in session. The email is always sent to the signed-in
+ * user's own address — callers cannot choose the recipient. At most
+ * RATE_LIMIT emails per user per hour (see note on rateLimited).
+ *
  * Body: {
- *   to: string             // recipient email
  *   type: '30day' | '7day' | 'dayof' | 'receipt'
  *   data: {
  *     name?: string
@@ -27,9 +32,47 @@ const subjects: Record<string, string> = {
     receipt: '✅ Zakat Payment Confirmation',
 };
 
+const MAX_DONATIONS = 200;
+
+const RATE_LIMIT = 5;
+const RATE_WINDOW_MS = 60 * 60 * 1000;
+const recentSends = new Map<string, number[]>();
+
+/**
+ * Per-user limit, kept in memory. On serverless hosting each instance keeps
+ * its own count, so this is a brake on accidental loops, not a hard cap; the
+ * real protection is that mail only ever goes to the signed-in user.
+ */
+function rateLimited(user: string): boolean {
+    const now = Date.now();
+    const sends = (recentSends.get(user) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+    if (sends.length >= RATE_LIMIT) {
+        recentSends.set(user, sends);
+        return true;
+    }
+    sends.push(now);
+    recentSends.set(user, sends);
+    return false;
+}
+
+function escapeHtml(value: unknown): string {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function toNumber(value: unknown): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+}
+
 function buildHtml(type: string, data: Record<string, unknown>): string {
-    const name = (data.name as string) || 'there';
-    const currency = (data.currency as string) || 'USD';
+    const name = escapeHtml(typeof data.name === 'string' && data.name ? data.name : 'there');
+    const currency =
+        typeof data.currency === 'string' && /^[A-Z]{3}$/.test(data.currency) ? data.currency : 'USD';
 
     const formatMoney = (n: number) =>
         new Intl.NumberFormat('en-US', {
@@ -57,7 +100,12 @@ function buildHtml(type: string, data: Record<string, unknown>): string {
     </div>`;
 
     if (type === 'receipt') {
-        const donations = (data.donations as Array<{ date: string; amount: number; recipient: string }>) || [];
+        const rawDonations = Array.isArray(data.donations) ? data.donations.slice(0, MAX_DONATIONS) : [];
+        const donations = rawDonations.map((d: Record<string, unknown>) => ({
+            date: escapeHtml(d?.date),
+            recipient: escapeHtml(d?.recipient),
+            amount: toNumber(d?.amount),
+        }));
         const total = donations.reduce((s, d) => s + d.amount, 0);
         const rows = donations
             .map(
@@ -95,7 +143,8 @@ function buildHtml(type: string, data: Record<string, unknown>): string {
     }
 
     // Reminder emails (30day / 7day / dayof)
-    const zakatDue = formatMoney((data.zakatDue as number) || 0);
+    const zakatDue = formatMoney(toNumber(data.zakatDue));
+    const anniversaryDate = escapeHtml(data.anniversaryDate);
     const daysLabel =
         type === '30day' ? '30 days' : type === '7day' ? '7 days' : 'today';
     const urgencyColor =
@@ -104,7 +153,7 @@ function buildHtml(type: string, data: Record<string, unknown>): string {
     return `${base}
       <h2 style="margin: 0 0 8px; font-size: 18px; color: white;">Assalamu Alaikum ${name},</h2>
       <p style="color: rgba(255,255,255,0.5); font-size: 14px; line-height: 1.6;">
-        Your Zakat anniversary is <strong style="color: ${urgencyColor};">${daysLabel}</strong> away${data.anniversaryDate ? ` (${data.anniversaryDate})` : ''}.
+        Your Zakat anniversary is <strong style="color: ${urgencyColor};">${daysLabel}</strong> away${anniversaryDate ? ` (${anniversaryDate})` : ''}.
       </p>
       <div style="background: rgba(16,185,129,0.05); border: 1px solid rgba(16,185,129,0.15); border-radius: 8px; padding: 20px; margin: 24px 0; text-align: center;">
         <p style="margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: rgba(16,185,129,0.5);">Estimated Zakat Due</p>
@@ -117,6 +166,16 @@ function buildHtml(type: string, data: Record<string, unknown>): string {
 }
 
 export async function POST(request: Request) {
+    const session = await getServerSession(authOptions);
+    const to = session?.user?.email;
+    if (!session || !to) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if (rateLimited(to.toLowerCase())) {
+        return NextResponse.json({ error: 'Too many emails. Try again later.' }, { status: 429 });
+    }
+
     if (!RESEND_API_KEY) {
         return NextResponse.json(
             { error: 'Resend API key not configured. Add RESEND_API_KEY to .env' },
@@ -125,12 +184,13 @@ export async function POST(request: Request) {
     }
 
     try {
-        const body = await request.json();
-        const { to, type, data } = body;
+        const body = await request.json().catch(() => null);
+        const type = body?.type;
+        const data = body?.data && typeof body.data === 'object' ? body.data : {};
 
-        if (!to || !type || !subjects[type]) {
+        if (typeof type !== 'string' || !Object.hasOwn(subjects, type)) {
             return NextResponse.json(
-                { error: 'Missing required fields: to, type' },
+                { error: 'Missing or invalid field: type' },
                 { status: 400 }
             );
         }
@@ -145,21 +205,19 @@ export async function POST(request: Request) {
                 from: FROM_EMAIL,
                 to: [to],
                 subject: subjects[type],
-                html: buildHtml(type, data || {}),
+                html: buildHtml(type, data),
             }),
         });
 
         if (!res.ok) {
-            const err = await res.text();
-            return NextResponse.json({ error: err }, { status: res.status });
+            console.error('Resend error:', res.status, await res.text());
+            return NextResponse.json({ error: 'Failed to send email' }, { status: 502 });
         }
 
         const result = await res.json();
         return NextResponse.json({ success: true, id: result.id });
     } catch (err: unknown) {
-        return NextResponse.json(
-            { error: err instanceof Error ? err.message : 'Unknown error' },
-            { status: 500 }
-        );
+        console.error('Email route error:', err);
+        return NextResponse.json({ error: 'Failed to send email' }, { status: 500 });
     }
 }
