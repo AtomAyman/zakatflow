@@ -1,10 +1,11 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
+import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Logo from '@/components/Logo';
+import SyncBanner from '@/components/SyncBanner';
 import { useZakatStore } from '@/lib/store';
 
 export default function DashboardLayout({
@@ -14,8 +15,10 @@ export default function DashboardLayout({
 }) {
     const { data: session, status } = useSession();
     const router = useRouter();
-    const { setSpreadsheetId, setBackupSpreadsheetId, setInitialized, fetchAllData, spreadsheetId } = useZakatStore();
-    const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'ready'>('idle');
+    const loadStatus = useZakatStore((s) => s.loadStatus);
+    const loadError = useZakatStore((s) => s.loadError);
+    const syncStatus = useZakatStore((s) => s.syncStatus);
+    const loadData = useZakatStore((s) => s.loadData);
 
     useEffect(() => {
         if (status === 'unauthenticated') {
@@ -23,38 +26,36 @@ export default function DashboardLayout({
         }
     }, [status, router]);
 
-    // Initialize spreadsheet on first load
+    // Load the user's spreadsheet once per visit.
     useEffect(() => {
-        if (session?.accessToken && initStatus === 'idle') {
-            setInitStatus('loading');
-
-            fetch('/api/sheets/init', { method: 'POST' })
-                .then((res) => res.json())
-                .then((data) => {
-                    if (data.data?.spreadsheetId) {
-                        setSpreadsheetId(data.data.spreadsheetId);
-                        if (data.data.backupSpreadsheetId) {
-                            setBackupSpreadsheetId(data.data.backupSpreadsheetId);
-                        }
-                        setInitStatus('ready');
-                    }
-                })
-                .catch((err) => {
-                    console.error('Init error:', err);
-                    setInitStatus('ready'); // Still show UI with defaults
-                });
+        if (status === 'authenticated' && loadStatus === 'idle') {
+            loadData();
         }
-    }, [session, initStatus, setSpreadsheetId]);
+    }, [status, loadStatus, loadData]);
 
-    // Fetch data once spreadsheet is ready
+    // A Google refresh failure is reported on the session itself.
     useEffect(() => {
-        if (initStatus === 'ready' && spreadsheetId) {
-            fetchAllData();
-            setInitialized(true);
+        if (session?.error === 'RefreshAccessTokenError') {
+            useZakatStore.setState({
+                syncStatus: 'reauth',
+                syncError: 'Your Google connection has expired. Please reconnect.',
+            });
         }
-    }, [initStatus, spreadsheetId, fetchAllData, setInitialized]);
+    }, [session?.error]);
 
-    if (status === 'loading' || initStatus === 'loading') {
+    // Warn before closing the tab while changes are still being saved.
+    useEffect(() => {
+        const handler = (e: BeforeUnloadEvent) => {
+            const { pendingChanges, syncStatus: s } = useZakatStore.getState();
+            if (pendingChanges > 0 || s === 'saving') {
+                e.preventDefault();
+            }
+        };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, []);
+
+    if (status === 'loading' || loadStatus === 'idle' || loadStatus === 'loading') {
         return (
             <div className="min-h-screen flex items-center justify-center bg-background">
                 <div className="text-center">
@@ -62,10 +63,31 @@ export default function DashboardLayout({
                         <Logo size={56} />
                     </div>
                     <p className="text-sm font-medium text-muted-foreground">
-                        {initStatus === 'loading'
-                            ? 'Setting up your dashboard...'
-                            : 'Loading...'}
+                        {loadStatus === 'loading' ? 'Opening your spreadsheet…' : 'Loading…'}
                     </p>
+                </div>
+            </div>
+        );
+    }
+
+    if (loadStatus === 'error') {
+        const reauth = syncStatus === 'reauth';
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-background p-6">
+                <div className="max-w-sm text-center space-y-4">
+                    <div className="flex justify-center">
+                        <Logo size={48} />
+                    </div>
+                    <h1 className="text-lg font-semibold text-foreground">
+                        {reauth ? 'Reconnect your Google account' : "We couldn't open your spreadsheet"}
+                    </h1>
+                    <p className="text-sm text-muted-foreground">{loadError}</p>
+                    <button
+                        onClick={() => (reauth ? signIn('google', { callbackUrl: '/dashboard' }) : loadData())}
+                        className="px-5 py-2.5 rounded-xl font-semibold text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                    >
+                        {reauth ? 'Reconnect Google' : 'Try again'}
+                    </button>
                 </div>
             </div>
         );
@@ -75,6 +97,7 @@ export default function DashboardLayout({
         <div className="min-h-screen bg-surface">
             <Sidebar />
             <main className="lg:ml-72 min-h-screen">
+                <SyncBanner />
                 <div className="p-6 lg:p-8 pt-16 lg:pt-8">{children}</div>
             </main>
         </div>

@@ -6,7 +6,7 @@ import type { DonationEntry } from '@/lib/types';
 import { Plus, Trash2, X, Heart, Download, Calendar } from 'lucide-react';
 
 export default function DonationsPage() {
-    const { selectedYear, settings, donations: allDonations, saveDonation, deleteDonation } = useZakatStore();
+    const { selectedYear, settings, donations: allDonations, saveDonation, deleteDonation, syncStatus } = useZakatStore();
 
     // Donations are stored in the user's sheet; show the selected Zakat year.
     const donations = useMemo(
@@ -61,19 +61,22 @@ export default function DonationsPage() {
         if (!newAmount || Number(newAmount) <= 0) return;
         setSaving(true);
         setError(null);
+        const saved = saveDonation({
+            zakatYear: selectedYear,
+            date: newDate,
+            amount: Number(newAmount),
+            recipient: newRecipient || 'Unspecified',
+            notes: newNotes,
+            category: newCategory,
+        });
+        // The donation is added (and queued for saving) immediately, so close
+        // the form now; a failed save is retried from the banner, never re-added.
+        resetForm();
+        setShowForm(false);
         try {
-            await saveDonation({
-                zakatYear: selectedYear,
-                date: newDate,
-                amount: Number(newAmount),
-                recipient: newRecipient || 'Unspecified',
-                notes: newNotes,
-                category: newCategory,
-            });
-            resetForm();
-            setShowForm(false);
+            await saved;
         } catch {
-            setError('Could not save this donation to your sheet. Please try again.');
+            setError('Added, but not saved to your spreadsheet yet. Use Retry at the top of the page.');
         } finally {
             setSaving(false);
         }
@@ -84,7 +87,7 @@ export default function DonationsPage() {
         try {
             await deleteDonation(id);
         } catch {
-            setError('Could not delete this donation. Please try again.');
+            setError('Removed, but not saved to your spreadsheet yet. Use Retry at the top of the page.');
         }
     };
 
@@ -219,13 +222,13 @@ export default function DonationsPage() {
                                 className="flex-1 py-2 rounded-md text-sm font-medium bg-rose-600 text-white hover:bg-rose-700 transition-colors shadow-sm disabled:opacity-60"
                             >{saving ? 'Saving…' : 'Add Donation'}</button>
                         </div>
-                        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+
                     </div>
                 </div>
             )}
 
-            {error && !showForm && (
-                <p role="alert" className="text-sm text-destructive">{error}</p>
+            {error && (syncStatus === 'error' || syncStatus === 'reauth') && (
+                <p className="text-sm text-destructive">{error}</p>
             )}
 
             {/* Donation List */}

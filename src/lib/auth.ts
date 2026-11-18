@@ -8,8 +8,9 @@ export const authOptions: NextAuthOptions = {
             clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
             authorization: {
                 params: {
-                    scope:
-                        'openid email profile https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets',
+                    // drive.file only grants access to files this app creates or
+                    // the user opens with it — enough for the user's Zakat sheet.
+                    scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
                     access_type: 'offline',
                     prompt: 'consent',
                 },
@@ -36,7 +37,8 @@ export const authOptions: NextAuthOptions = {
             return await refreshAccessToken(token);
         },
         async session({ session, token }) {
-            session.accessToken = token.accessToken as string;
+            // The Google access token stays server-side; API routes read it
+            // from the encrypted session cookie via getGoogleAccessToken().
             session.error = token.error as string | undefined;
             return session;
         },
@@ -49,7 +51,7 @@ export const authOptions: NextAuthOptions = {
     },
 };
 
-async function refreshAccessToken(token: Record<string, unknown>) {
+export async function refreshAccessToken(token: Record<string, unknown>) {
     try {
         const response = await fetch('https://oauth2.googleapis.com/token', {
             method: 'POST',
@@ -83,7 +85,6 @@ async function refreshAccessToken(token: Record<string, unknown>) {
 // Extend NextAuth types
 declare module 'next-auth' {
     interface Session {
-        accessToken: string;
         error?: string;
     }
 }

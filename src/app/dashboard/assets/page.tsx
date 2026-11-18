@@ -263,14 +263,6 @@ export default function AssetsPage() {
     const handleAdd = () => {
         const asset = buildAssetFromForm(uuid());
         addAsset(asset);
-        fetch('/api/sheets/assets', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
-            },
-            body: JSON.stringify(asset),
-        }).catch(console.error);
         resetForm();
         setShowForm(false);
     };
@@ -279,28 +271,12 @@ export default function AssetsPage() {
         if (!editingAsset) return;
         const asset = buildAssetFromForm(editingAsset.id);
         updateAsset(asset);
-        fetch('/api/sheets/assets', {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
-            },
-            body: JSON.stringify(asset),
-        }).catch(console.error);
         setEditingAsset(null);
         setShowForm(false);
     };
 
     const handleDelete = (id: string) => {
         removeAsset(id);
-        fetch('/api/sheets/assets', {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
-            },
-            body: JSON.stringify({ id }),
-        }).catch(console.error);
     };
 
     // Tab counts

@@ -115,21 +115,8 @@ export default function HistoryPage() {
             recipientsList: fRecipients,
         };
 
-        useZakatStore.getState().setHistory([...history, entry]);
+        useZakatStore.getState().saveHistoryEntry(entry);
         setShowFinalizeModal(false);
-
-        try {
-            await fetch('/api/sheets/history', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
-                },
-                body: JSON.stringify(entry),
-            });
-        } catch (err) {
-            console.error('Failed to save history:', err);
-        }
     };
 
     // ─── Quick-add (no asset data needed) ─────────────────
@@ -145,21 +132,8 @@ export default function HistoryPage() {
             recipientsList: qaRecipients,
         };
 
-        useZakatStore.getState().setHistory([...history, entry]);
+        useZakatStore.getState().saveHistoryEntry(entry);
         setShowQuickAdd(false);
-
-        try {
-            await fetch('/api/sheets/history', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
-                },
-                body: JSON.stringify(entry),
-            });
-        } catch (err) {
-            console.error('Failed to save history:', err);
-        }
     };
 
     const handleBackfillYear = (year: string) => {

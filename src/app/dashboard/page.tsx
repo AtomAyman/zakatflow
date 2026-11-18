@@ -24,7 +24,8 @@ import {
 } from 'recharts';
 
 export default function DashboardPage() {
-    const { dashboard, settings, assets, prices, isLoading, selectedYear, getAssetsForYear } = useZakatStore();
+    const { dashboard, settings, assets, prices, loadStatus, selectedYear, getAssetsForYear } = useZakatStore();
+    const isLoading = loadStatus !== 'ready';
     const yearAssets = getAssetsForYear(selectedYear);
 
     const formatCurrency = (n: number) =>
