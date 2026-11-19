@@ -9,12 +9,39 @@ import {
 } from '@/lib/types';
 import { HIJRI_MONTHS, gregorianToHijri, formatHijriDate } from '@/lib/hijri-calendar';
 import { ALL_STATES_PROVINCES } from '@/lib/tax-data';
-import { Save, Check, ExternalLink, Calendar, Wallet, MapPin } from 'lucide-react';
+import { Save, Check, ExternalLink, Calendar, Wallet, MapPin, Wrench, ShieldCheck } from 'lucide-react';
 import { useState, useMemo } from 'react';
 
 export default function SettingsPage() {
-    const { settings, setSettings, saveCurrentSettings, spreadsheetId, backupSpreadsheetId } = useZakatStore();
+    const { settings, setSettings, saveCurrentSettings, file, repairFile } = useZakatStore();
+    const [repairing, setRepairing] = useState(false);
+    const [repairMessage, setRepairMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+    const handleRepair = async () => {
+        setRepairing(true);
+        setRepairMessage(null);
+        try {
+            const report = await repairFile();
+            const fixes = [
+                report.tabsCreated.length ? `restored ${report.tabsCreated.length} missing tab(s)` : '',
+                report.columnsAdded.length ? `restored ${report.columnsAdded.length} missing column(s)` : '',
+                report.rowsFixed ? `fixed ${report.rowsFixed} row(s)` : '',
+            ].filter(Boolean);
+            setRepairMessage({
+                ok: true,
+                text: fixes.length
+                    ? `Done: ${fixes.join(', ')}. Formatting refreshed.`
+                    : 'Your sheet was in good shape. Formatting refreshed.',
+            });
+        } catch (e) {
+            setRepairMessage({ ok: false, text: e instanceof Error ? e.message : 'Repair failed. Please try again.' });
+        } finally {
+            setRepairing(false);
+        }
+    };
     const [saved, setSaved] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     const currentHijri = useMemo(() => {
         const h = gregorianToHijri(new Date());
@@ -33,9 +60,17 @@ export default function SettingsPage() {
     };
 
     const handleSave = async () => {
-        await saveCurrentSettings();
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
+        setSaving(true);
+        setSaveError(null);
+        try {
+            await saveCurrentSettings();
+            setSaved(true);
+            setTimeout(() => setSaved(false), 2000);
+        } catch {
+            setSaveError('Could not save to your sheet. Please try again.');
+        } finally {
+            setSaving(false);
+        }
     };
 
     return (
@@ -47,16 +82,22 @@ export default function SettingsPage() {
                         Configure your Zakat calculation preferences
                     </p>
                 </div>
+                <div className="flex flex-col items-end gap-1">
                 <button
                     onClick={handleSave}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-[0.98] ${saved
+                    disabled={saving}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-[0.98] disabled:opacity-60 ${saved
                         ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                         : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
                         }`}
                 >
                     {saved ? <Check size={14} /> : <Save size={14} />}
-                    {saved ? 'Saved!' : 'Save Settings'}
+                    {saved ? 'Saved!' : saving ? 'Saving…' : 'Save Settings'}
                 </button>
+                {saveError && (
+                    <p role="alert" className="text-xs text-destructive">{saveError}</p>
+                )}
+                </div>
             </div>
 
             {/* Madhab */}
@@ -359,45 +400,63 @@ export default function SettingsPage() {
             {/* Data Storage & Backups */}
             <section className="rounded-2xl bg-card border border-border p-6 shadow-sm">
                 <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-1">
-                    Data Storage & Backups
+                    Your Data
                 </h2>
                 <p className="text-xs text-muted-foreground mb-4">
-                    Your data is securely stored in your personal Google Drive. A real-time backup sheet receives automatic twin updates for maximum safety.
+                    Everything you enter is saved to a spreadsheet in your own {file?.providerName ?? 'Google'} account.
+                    We don&apos;t keep a copy on our servers, and nothing is stored in this browser after you close the tab.
                 </p>
                 <div className="grid gap-3">
                     <a
-                        href={spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}` : '#'}
+                        href={file?.url ?? '#'}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                         className="flex items-center justify-between p-4 rounded-xl transition-all bg-background border border-border hover:bg-secondary/50 group"
                     >
                         <div>
                             <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-500 mb-0.5">
-                                Primary Data Sheet
+                                Open my spreadsheet
                             </p>
                             <p className="text-[10px] text-muted-foreground group-hover:text-foreground transition-colors">
-                                The live document ZakatFlow uses for calculations
+                                Start with the Summary tab. Make changes here in the app so nothing gets out of step.
                             </p>
                         </div>
                         <ExternalLink size={16} className="text-muted-foreground group-hover:text-emerald-600 transition-colors" />
                     </a>
 
-                    <a
-                        href={backupSpreadsheetId ? `https://docs.google.com/spreadsheets/d/${backupSpreadsheetId}` : '#'}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center justify-between p-4 rounded-xl transition-all bg-background border border-border hover:bg-secondary/50 group"
-                    >
+                    <div className="flex items-start gap-3 p-4 rounded-xl bg-background border border-border">
+                        <ShieldCheck size={16} className="text-emerald-600 dark:text-emerald-500 mt-0.5 shrink-0" />
                         <div>
-                            <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-500 mb-0.5">
-                                Real-time Backup Sheet
-                            </p>
-                            <p className="text-[10px] text-muted-foreground group-hover:text-foreground transition-colors">
-                                A mirror copy automatically updated alongside your primary sheet
+                            <p className="text-sm font-semibold text-foreground mb-0.5">Automatic weekly backup</p>
+                            <p className="text-[10px] text-muted-foreground">
+                                Once a week we save a full copy of your spreadsheet to your Drive, named
+                                &quot;(automatic backup)&quot;. The previous backup goes to your Drive trash, where it stays
+                                recoverable for 30 days.
                             </p>
                         </div>
-                        <ExternalLink size={16} className="text-muted-foreground group-hover:text-emerald-600 transition-colors" />
-                    </a>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-background border border-border">
+                        <div>
+                            <p className="text-sm font-semibold text-foreground mb-0.5">Repair my spreadsheet</p>
+                            <p className="text-[10px] text-muted-foreground">
+                                Restores missing tabs or columns, dropdowns and formatting if something was changed by
+                                accident. Your data is never deleted.
+                            </p>
+                        </div>
+                        <button
+                            onClick={handleRepair}
+                            disabled={repairing || !file}
+                            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-secondary text-secondary-foreground border border-border hover:bg-secondary/80 disabled:opacity-60 shrink-0"
+                        >
+                            <Wrench size={14} /> {repairing ? 'Repairing…' : 'Repair'}
+                        </button>
+                    </div>
+                    {repairMessage && (
+                        <p role="status" className={`text-xs ${repairMessage.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+                            {repairMessage.text}
+                        </p>
+                    )}
                 </div>
             </section>
         </div>

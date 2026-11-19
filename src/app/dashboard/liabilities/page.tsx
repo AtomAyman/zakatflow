@@ -143,14 +143,6 @@ export default function LiabilitiesPage() {
         };
 
         addLiability(liability);
-        fetch('/api/sheets/liabilities', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
-            },
-            body: JSON.stringify(liability),
-        }).catch(console.error);
 
         resetForm();
         setShowForm(false);
@@ -170,14 +162,6 @@ export default function LiabilitiesPage() {
         };
 
         updateLiability(liability);
-        fetch('/api/sheets/liabilities', {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
-            },
-            body: JSON.stringify(liability),
-        }).catch(console.error);
 
         setEditingLiability(null);
         setShowForm(false);
@@ -185,28 +169,12 @@ export default function LiabilitiesPage() {
 
     const handleDelete = (id: string) => {
         removeLiability(id);
-        fetch('/api/sheets/liabilities', {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
-            },
-            body: JSON.stringify({ id }),
-        }).catch(console.error);
     };
 
     // Quick toggle immediate — inline without opening modal
     const toggleImmediate = (liability: Liability) => {
         const updated = { ...liability, isImmediate: !liability.isImmediate };
         updateLiability(updated);
-        fetch('/api/sheets/liabilities', {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-spreadsheet-id': useZakatStore.getState().spreadsheetId || '',
-            },
-            body: JSON.stringify(updated),
-        }).catch(console.error);
     };
 
     // Tab counts & totals

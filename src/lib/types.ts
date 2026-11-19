@@ -124,6 +124,7 @@ export interface Liability {
 
 export interface DonationEntry {
   id: string; // Unique identifier for the donation
+  zakatYear?: string; // e.g. "2025" — which Zakat year this payment counts toward
   date: string;
   amount: number;
   recipient: string;
