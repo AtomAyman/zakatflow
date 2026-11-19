@@ -15,11 +15,14 @@ import {
     X,
     Moon,
     Sun,
+    Upload,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import Logo from '@/components/Logo';
 import { useTheme } from 'next-themes';
-import { Button } from '@/components/ui/button';
+import { withModuleNavItems } from '@/lib/modules/registry';
+import SyncStatus from '@/components/SyncStatus';
+import { useZakatStore } from '@/lib/store';
 
 const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -27,8 +30,12 @@ const navItems = [
     { href: '/dashboard/liabilities', label: 'Liabilities', icon: CreditCard },
     { href: '/dashboard/history', label: 'History', icon: History },
     { href: '/dashboard/donations', label: 'Donations', icon: Heart },
+    { href: '/dashboard/import', label: 'Import', icon: Upload },
     { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
+
+// Companion modules (V2, e.g. Wasiyyah) are added here only when their flag is on.
+const allNavItems = withModuleNavItems(navItems);
 
 export default function Sidebar() {
     const pathname = usePathname();
@@ -93,7 +100,7 @@ export default function Sidebar() {
 
                     {/* Navigation */}
                     <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-                        {navItems.map((item) => {
+                        {allNavItems.map((item) => {
                             const isActive =
                                 pathname === item.href ||
                                 (item.href !== '/dashboard' && pathname?.startsWith(item.href));
@@ -101,6 +108,7 @@ export default function Sidebar() {
                                 <Link
                                     key={item.href}
                                     href={item.href}
+                                    {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                                     onClick={() => setMobileOpen(false)}
                                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${isActive
                                             ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary'
@@ -113,6 +121,8 @@ export default function Sidebar() {
                             );
                         })}
                     </nav>
+
+                    <SyncStatus />
 
                     {/* User & Sign Out */}
                     <div className="p-4 mx-4 mb-4 rounded-xl bg-secondary/50 border border-border">
@@ -137,7 +147,11 @@ export default function Sidebar() {
                                 </p>
                             </div>
                             <button
-                                onClick={() => signOut({ callbackUrl: '/' })}
+                                onClick={() => {
+                                    // Clear in-memory data before leaving.
+                                    useZakatStore.getState().reset();
+                                    signOut({ callbackUrl: '/' });
+                                }}
                                 className="p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
                                 title="Sign out"
                             >

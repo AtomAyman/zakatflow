@@ -6,60 +6,79 @@ import {
     type Asset,
     type Liability,
     type HistoryEntry,
+    type DonationEntry,
     type PriceData,
     type DashboardSummary,
     DEFAULT_SETTINGS,
     DEFAULT_PRICES,
 } from './types';
 import { calculateDashboard, calculateAssetNetValue } from './zakat-engine';
+import type { ChangeOp, RepairReport, StorageFile, SummaryPayload, UserData, YearSummary } from './storage/types';
 import { v4 as uuid } from 'uuid';
 
+/**
+ * App state. Everything lives in memory only — nothing is written to
+ * localStorage/IndexedDB — so closing the tab or signing out leaves no copy
+ * of the user's data in the browser.
+ *
+ * Edits update the UI immediately and are queued; the queue is saved to the
+ * user's spreadsheet in one batch shortly after the last edit. Failed saves
+ * stay queued so they can be retried.
+ */
+
+export type SyncStatus = 'idle' | 'saving' | 'error' | 'reauth';
+export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
+
 interface ZakatStore {
-    // State
+    // Data
     settings: Settings;
     assets: Asset[];        // ALL assets across all years
     liabilities: Liability[]; // ALL liabilities across all years
     history: HistoryEntry[];
+    donations: DonationEntry[]; // ALL donations across all years
     prices: PriceData;
-    spreadsheetId: string | null;
-    backupSpreadsheetId: string | null;
-    isLoading: boolean;
-    error: string | null;
-    isInitialized: boolean;
-    selectedYear: string;   // currently viewed Zakat year
-
-    // Derived
+    selectedYear: string;
     dashboard: DashboardSummary;
 
-    // Actions
-    setSpreadsheetId: (id: string) => void;
-    setBackupSpreadsheetId: (id: string) => void;
+    // Storage
+    file: StorageFile | null;
+    loadStatus: LoadStatus;
+    loadError: string | null;
+    syncStatus: SyncStatus;
+    syncError: string | null;
+    pendingChanges: number;
+    lastSavedAt: number | null;
+
+    // Local-only setters
     setSettings: (settings: Settings) => void;
-    setAssets: (assets: Asset[]) => void;
+    setSelectedYear: (year: string) => void;
+    recalculate: () => void;
+
+    // Edits (update UI immediately, then save)
     addAsset: (asset: Asset) => void;
     updateAsset: (asset: Asset) => void;
     removeAsset: (id: string) => void;
-    setLiabilities: (liabilities: Liability[]) => void;
     addLiability: (liability: Liability) => void;
     updateLiability: (liability: Liability) => void;
     removeLiability: (id: string) => void;
-    setHistory: (history: HistoryEntry[]) => void;
-    setPrices: (prices: PriceData) => void;
-    setLoading: (loading: boolean) => void;
-    setError: (error: string | null) => void;
-    setInitialized: (init: boolean) => void;
-    setSelectedYear: (year: string) => void;
-    recalculate: () => void;
+    saveHistoryEntry: (entry: HistoryEntry) => void;
+    saveDonation: (donation: Omit<DonationEntry, 'id'>) => Promise<void>;
+    deleteDonation: (id: string) => Promise<void>;
+    copyYearData: (fromYear: string, toYear: string) => void;
+    saveCurrentSettings: () => Promise<void>;
 
     // Year helpers
     getAssetsForYear: (year: string) => Asset[];
     getLiabilitiesForYear: (year: string) => Liability[];
     getYearsWithData: () => string[];
-    copyYearData: (fromYear: string, toYear: string) => void;
 
-    // Async actions
-    fetchAllData: () => Promise<void>;
-    saveCurrentSettings: () => Promise<void>;
+    // Lifecycle
+    /** `background` reloads without showing the full-screen loading state. */
+    loadData: (opts?: { background?: boolean }) => Promise<void>;
+    flush: () => Promise<void>;
+    retrySync: () => Promise<void>;
+    repairFile: () => Promise<RepairReport>;
+    reset: () => void;
 }
 
 const currentYear = new Date().getFullYear().toString();
@@ -78,213 +97,372 @@ const defaultDashboard: DashboardSummary = {
     assetBreakdown: [],
 };
 
-export const useZakatStore = create<ZakatStore>((set, get) => ({
-    // Initial state
+const initialState = {
     settings: DEFAULT_SETTINGS,
-    assets: [],
-    liabilities: [],
-    history: [],
+    assets: [] as Asset[],
+    liabilities: [] as Liability[],
+    history: [] as HistoryEntry[],
+    donations: [] as DonationEntry[],
     prices: DEFAULT_PRICES,
-    spreadsheetId: null,
-    backupSpreadsheetId: null,
-    isLoading: false,
-    error: null,
-    isInitialized: false,
     selectedYear: currentYear,
     dashboard: defaultDashboard,
+    file: null as StorageFile | null,
+    loadStatus: 'idle' as LoadStatus,
+    loadError: null as string | null,
+    syncStatus: 'idle' as SyncStatus,
+    syncError: null as string | null,
+    pendingChanges: 0,
+    lastSavedAt: null as number | null,
+};
 
-    // Simple setters
-    setSpreadsheetId: (id) => set({ spreadsheetId: id }),
-    setBackupSpreadsheetId: (id) => set({ backupSpreadsheetId: id }),
-    setSettings: (settings) => {
-        set({ settings });
-        get().recalculate();
-    },
-    setAssets: (assets) => {
-        set({ assets });
-        get().recalculate();
-    },
-    addAsset: (asset) => {
-        set((state) => ({ assets: [...state.assets, asset] }));
-        get().recalculate();
-    },
-    updateAsset: (asset) => {
-        set((state) => ({
-            assets: state.assets.map((a) => (a.id === asset.id ? asset : a)),
-        }));
-        get().recalculate();
-    },
-    removeAsset: (id) => {
-        set((state) => ({ assets: state.assets.filter((a) => a.id !== id) }));
-        get().recalculate();
-    },
-    setLiabilities: (liabilities) => {
-        set({ liabilities });
-        get().recalculate();
-    },
-    addLiability: (liability) => {
-        set((state) => ({ liabilities: [...state.liabilities, liability] }));
-        get().recalculate();
-    },
-    updateLiability: (liability) => {
-        set((state) => ({
-            liabilities: state.liabilities.map((l) => (l.id === liability.id ? liability : l)),
-        }));
-        get().recalculate();
-    },
-    removeLiability: (id) => {
-        set((state) => ({
-            liabilities: state.liabilities.filter((l) => l.id !== id),
-        }));
-        get().recalculate();
-    },
-    setHistory: (history) => set({ history }),
-    setPrices: (prices) => {
-        set({ prices });
-        get().recalculate();
-    },
-    setLoading: (isLoading) => set({ isLoading }),
-    setError: (error) => set({ error }),
-    setInitialized: (isInitialized) => set({ isInitialized }),
-    setSelectedYear: (year) => {
-        set({ selectedYear: year });
-        get().recalculate();
-    },
+// ─── Save queue ───────────────────────────────────────────
 
-    // Year helpers
-    getAssetsForYear: (year) => get().assets.filter((a) => a.zakatYear === year),
-    getLiabilitiesForYear: (year) =>
-        get().liabilities.filter((l) => l.zakatYear === year),
-    getYearsWithData: () => {
-        const { assets, liabilities } = get();
-        const years = new Set<string>();
-        assets.forEach((a) => years.add(a.zakatYear));
-        liabilities.forEach((l) => years.add(l.zakatYear));
-        return Array.from(years).sort().reverse();
-    },
-    copyYearData: (fromYear, toYear) => {
-        const { assets, liabilities } = get();
-        const fromAssets = assets.filter((a) => a.zakatYear === fromYear);
-        const fromLiabilities = liabilities.filter(
-            (l) => l.zakatYear === fromYear
-        );
+const SAVE_DELAY_MS = 600;
 
-        const newAssets = fromAssets.map((a) => ({
-            ...a,
-            id: uuid(),
-            zakatYear: toYear,
-        }));
-        const newLiabilities = fromLiabilities.map((l) => ({
-            ...l,
-            id: uuid(),
-            zakatYear: toYear,
-        }));
+/** Latest pending change per record; later edits replace earlier ones. */
+const queue = new Map<string, ChangeOp>();
+let summaryDirty = false;
+let timer: ReturnType<typeof setTimeout> | null = null;
+let inflight: Promise<void> | null = null;
 
-        set((state) => ({
-            assets: [...state.assets, ...newAssets],
-            liabilities: [...state.liabilities, ...newLiabilities],
-        }));
-        get().recalculate();
-    },
+export function changeKey(op: ChangeOp): string {
+    if (op.action === 'delete') return `${op.entity}:${op.key}`;
+    switch (op.entity) {
+        case 'settings':
+            return 'settings';
+        case 'history':
+            return `history:${op.record.year}`;
+        default:
+            return `${op.entity}:${op.record.id}`;
+    }
+}
 
-    // Recalculate dashboard (only for selectedYear's data)
-    recalculate: () => {
-        const { assets, liabilities, settings, prices, selectedYear } = get();
-        const yearAssets = assets.filter((a) => a.zakatYear === selectedYear);
-        const yearLiabilities = liabilities.filter(
-            (l) => l.zakatYear === selectedYear
-        );
-        const dashboard = calculateDashboard(
-            yearAssets,
-            yearLiabilities,
-            settings,
-            prices
-        );
+interface ApiResult<T> {
+    ok: boolean;
+    status: number;
+    data?: T;
+    error?: string;
+    code?: string;
+}
 
-        // Stamp computed values back onto each asset for display
-        const updatedAssets = assets.map((asset) => {
-            if (asset.zakatYear !== selectedYear) return asset;
-            const { netZakatable, deductible, computedGrossInBase } = calculateAssetNetValue(
-                asset, settings, prices.exchangeRates, prices
-            );
-            return {
-                ...asset,
-                netZakatableValue: netZakatable,
-                deductibleTaxPenalty: deductible,
-                // Store computed gross in base currency for display (don't overwrite grossValue)
-                _computedGross: computedGrossInBase,
-            };
+async function callApi<T>(url: string, body?: unknown): Promise<ApiResult<T>> {
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body === undefined ? undefined : JSON.stringify(body),
         });
+        const json = await res.json().catch(() => ({}));
+        return { ok: res.ok, status: res.status, data: json.data, error: json.error, code: json.code };
+    } catch {
+        return {
+            ok: false,
+            status: 0,
+            error: "You're offline or the server can't be reached. Your changes are kept and will be saved when you retry.",
+        };
+    }
+}
 
-        set({ dashboard, assets: updatedAssets });
-    },
+/** Per-year rows for the spreadsheet's Summary tab. */
+export function buildSummary(
+    state: Pick<ZakatStore, 'assets' | 'liabilities' | 'history' | 'donations' | 'settings' | 'prices'>
+): SummaryPayload {
+    const years = new Set<string>();
+    state.assets.forEach((a) => years.add(a.zakatYear));
+    state.liabilities.forEach((l) => years.add(l.zakatYear));
+    state.history.forEach((h) => years.add(h.year));
+    state.donations.forEach((d) => d.zakatYear && years.add(d.zakatYear));
 
-    // Fetch all data from APIs
-    fetchAllData: async () => {
-        const { spreadsheetId, backupSpreadsheetId } = get();
-        if (!spreadsheetId) return;
-
-        set({ isLoading: true, error: null });
-        try {
-            const sheetHeaders: Record<string, string> = { 'x-spreadsheet-id': spreadsheetId };
-            if (backupSpreadsheetId) {
-                sheetHeaders['x-backup-spreadsheet-id'] = backupSpreadsheetId;
-            }
-            const [settingsRes, assetsRes, liabilitiesRes, historyRes, pricesRes] =
-                await Promise.all([
-                    fetch('/api/sheets/settings', { headers: sheetHeaders }),
-                    fetch('/api/sheets/assets', { headers: sheetHeaders }),
-                    fetch('/api/sheets/liabilities', { headers: sheetHeaders }),
-                    fetch('/api/sheets/history', { headers: sheetHeaders }),
-                    fetch('/api/prices'),
-                ]);
-
-            const settings = await settingsRes.json();
-            const assets = await assetsRes.json();
-            const liabilities = await liabilitiesRes.json();
-            const history = await historyRes.json();
-            const prices = await pricesRes.json();
-
-            set({
-                settings: settings.data || DEFAULT_SETTINGS,
-                assets: assets.data || [],
-                liabilities: liabilities.data || [],
-                history: history.data || [],
-                prices: prices.data || DEFAULT_PRICES,
-                isLoading: false,
-                isInitialized: true,
-            });
-
-            get().recalculate();
-        } catch (err) {
-            set({
-                error: err instanceof Error ? err.message : 'Failed to fetch data',
-                isLoading: false,
-            });
-        }
-    },
-
-    // Save settings via API
-    saveCurrentSettings: async () => {
-        const { settings, spreadsheetId, backupSpreadsheetId } = get();
-        try {
-            const headers: Record<string, string> = {
-                'Content-Type': 'application/json',
-                'x-spreadsheet-id': spreadsheetId || '',
+    const rows: YearSummary[] = [...years].filter(Boolean).map((year) => {
+        const finalized = state.history.find((h) => h.year === year);
+        if (finalized) {
+            // A finalized year is a record of what was decided at the time.
+            return {
+                year,
+                totalAssets: finalized.totalAssets,
+                notZakatable: 0,
+                debtsDeducted: finalized.totalLiabilities,
+                netZakatable: finalized.netZakatable,
+                nisab: finalized.nisabThresholdUsed,
+                aboveNisab: finalized.netZakatable >= finalized.nisabThresholdUsed,
+                zakatDue: finalized.zakatPaid,
             };
-            if (backupSpreadsheetId) {
-                headers['x-backup-spreadsheet-id'] = backupSpreadsheetId;
+        }
+        const d = calculateDashboard(
+            state.assets.filter((a) => a.zakatYear === year),
+            state.liabilities.filter((l) => l.zakatYear === year),
+            state.settings,
+            state.prices
+        );
+        return {
+            year,
+            totalAssets: d.totalGrossAssets,
+            notZakatable: d.totalDeductions,
+            debtsDeducted: d.liabilityDeduction,
+            netZakatable: d.netZakatableWealth,
+            nisab: d.nisabThreshold,
+            aboveNisab: d.isAboveNisab,
+            zakatDue: d.zakatDue,
+        };
+    });
+
+    return { baseCurrency: state.settings.baseCurrency, years: rows };
+}
+
+export const useZakatStore = create<ZakatStore>((set, get) => {
+    const scheduleFlush = () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+            timer = null;
+            get().flush().catch(() => {
+                /* status is already recorded in the store */
+            });
+        }, SAVE_DELAY_MS);
+    };
+
+    const enqueue = (...ops: ChangeOp[]) => {
+        for (const op of ops) queue.set(changeKey(op), op);
+        summaryDirty = true;
+        set({ pendingChanges: queue.size });
+        scheduleFlush();
+    };
+
+    return {
+        ...initialState,
+
+        // ── Local-only setters ──
+        setSettings: (settings) => {
+            set({ settings });
+            get().recalculate();
+        },
+        setSelectedYear: (year) => {
+            set({ selectedYear: year });
+            get().recalculate();
+        },
+
+        // ── Edits ──
+        addAsset: (asset) => {
+            set((s) => ({ assets: [...s.assets, asset] }));
+            get().recalculate();
+            enqueue({ entity: 'assets', action: 'upsert', record: asset });
+        },
+        updateAsset: (asset) => {
+            set((s) => ({ assets: s.assets.map((a) => (a.id === asset.id ? asset : a)) }));
+            get().recalculate();
+            enqueue({ entity: 'assets', action: 'upsert', record: asset });
+        },
+        removeAsset: (id) => {
+            set((s) => ({ assets: s.assets.filter((a) => a.id !== id) }));
+            get().recalculate();
+            enqueue({ entity: 'assets', action: 'delete', key: id });
+        },
+        addLiability: (liability) => {
+            set((s) => ({ liabilities: [...s.liabilities, liability] }));
+            get().recalculate();
+            enqueue({ entity: 'liabilities', action: 'upsert', record: liability });
+        },
+        updateLiability: (liability) => {
+            set((s) => ({ liabilities: s.liabilities.map((l) => (l.id === liability.id ? liability : l)) }));
+            get().recalculate();
+            enqueue({ entity: 'liabilities', action: 'upsert', record: liability });
+        },
+        removeLiability: (id) => {
+            set((s) => ({ liabilities: s.liabilities.filter((l) => l.id !== id) }));
+            get().recalculate();
+            enqueue({ entity: 'liabilities', action: 'delete', key: id });
+        },
+        saveHistoryEntry: (entry) => {
+            // One finalized record per Zakat year; finalizing again replaces it.
+            set((s) => ({ history: [...s.history.filter((h) => h.year !== entry.year), entry] }));
+            enqueue({ entity: 'history', action: 'upsert', record: entry });
+        },
+        saveDonation: async (donation) => {
+            const entry: DonationEntry = { ...donation, id: uuid() };
+            set((s) => ({ donations: [entry, ...s.donations] }));
+            enqueue({ entity: 'donations', action: 'upsert', record: entry });
+            await get().flush();
+        },
+        deleteDonation: async (id) => {
+            set((s) => ({ donations: s.donations.filter((d) => d.id !== id) }));
+            enqueue({ entity: 'donations', action: 'delete', key: id });
+            await get().flush();
+        },
+        copyYearData: (fromYear, toYear) => {
+            const { assets, liabilities } = get();
+            const newAssets = assets
+                .filter((a) => a.zakatYear === fromYear)
+                .map((a) => ({ ...a, id: uuid(), zakatYear: toYear }));
+            const newLiabilities = liabilities
+                .filter((l) => l.zakatYear === fromYear)
+                .map((l) => ({ ...l, id: uuid(), zakatYear: toYear }));
+
+            set((s) => ({
+                assets: [...s.assets, ...newAssets],
+                liabilities: [...s.liabilities, ...newLiabilities],
+            }));
+            get().recalculate();
+            enqueue(
+                ...newAssets.map((record): ChangeOp => ({ entity: 'assets', action: 'upsert', record })),
+                ...newLiabilities.map((record): ChangeOp => ({ entity: 'liabilities', action: 'upsert', record }))
+            );
+        },
+        saveCurrentSettings: async () => {
+            enqueue({ entity: 'settings', action: 'upsert', record: get().settings });
+            await get().flush();
+        },
+
+        // ── Year helpers ──
+        getAssetsForYear: (year) => get().assets.filter((a) => a.zakatYear === year),
+        getLiabilitiesForYear: (year) => get().liabilities.filter((l) => l.zakatYear === year),
+        getYearsWithData: () => {
+            const { assets, liabilities } = get();
+            const years = new Set<string>();
+            assets.forEach((a) => years.add(a.zakatYear));
+            liabilities.forEach((l) => years.add(l.zakatYear));
+            return Array.from(years).sort().reverse();
+        },
+
+        // Recalculate dashboard (only for selectedYear's data)
+        recalculate: () => {
+            const { assets, liabilities, settings, prices, selectedYear } = get();
+            const yearAssets = assets.filter((a) => a.zakatYear === selectedYear);
+            const yearLiabilities = liabilities.filter((l) => l.zakatYear === selectedYear);
+            const dashboard = calculateDashboard(yearAssets, yearLiabilities, settings, prices);
+
+            // Stamp computed values back onto each asset for display
+            const updatedAssets = assets.map((asset) => {
+                if (asset.zakatYear !== selectedYear) return asset;
+                const { netZakatable, deductible, computedGrossInBase } = calculateAssetNetValue(
+                    asset, settings, prices.exchangeRates, prices
+                );
+                return {
+                    ...asset,
+                    netZakatableValue: netZakatable,
+                    deductibleTaxPenalty: deductible,
+                    // Store computed gross in base currency for display (don't overwrite grossValue)
+                    _computedGross: computedGrossInBase,
+                };
+            });
+
+            set({ dashboard, assets: updatedAssets });
+        },
+
+        // ── Lifecycle ──
+        loadData: async (opts) => {
+            if (!opts?.background) set({ loadStatus: 'loading', loadError: null });
+            const [loaded, prices] = await Promise.all([
+                callApi<{ file: StorageFile; data: UserData; summaryStale: boolean }>('/api/storage/load'),
+                fetch('/api/prices').then((r) => r.json()).catch(() => ({})),
+            ]);
+
+            if (!loaded.ok || !loaded.data) {
+                if (opts?.background) throw new Error(loaded.error || 'Could not reload your spreadsheet.');
+                set({
+                    loadStatus: 'error',
+                    loadError: loaded.error || 'Could not open your spreadsheet.',
+                    syncStatus: loaded.status === 401 ? 'reauth' : get().syncStatus,
+                });
+                return;
             }
 
-            await fetch('/api/sheets/settings', {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(settings),
-            });
-        } catch (err) {
+            const { file, data, summaryStale } = loaded.data;
             set({
-                error: err instanceof Error ? err.message : 'Failed to save settings',
+                file,
+                settings: data.settings,
+                assets: data.assets,
+                liabilities: data.liabilities,
+                history: data.history,
+                donations: data.donations,
+                prices: prices?.data || DEFAULT_PRICES,
+                loadStatus: 'ready',
             });
-        }
-    },
-}));
+            get().recalculate();
+
+            if (summaryStale) {
+                summaryDirty = true;
+                scheduleFlush();
+            }
+        },
+
+        flush: async () => {
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+            // One save at a time; anything queued meanwhile goes in the next batch.
+            while (inflight) await inflight.catch(() => {});
+
+            const { file } = get();
+            if (!file || (queue.size === 0 && !summaryDirty)) return;
+
+            const batch = [...queue.entries()];
+            queue.clear();
+            const sendSummary = summaryDirty;
+            summaryDirty = false;
+            set({ syncStatus: 'saving', pendingChanges: batch.length });
+
+            const run = (async () => {
+                const result = await callApi('/api/storage/changes', {
+                    fileId: file.id,
+                    ops: batch.map(([, op]) => op),
+                    summary: sendSummary ? buildSummary(get()) : undefined,
+                });
+
+                if (!result.ok) {
+                    // Put the batch back unless a newer edit to the same record arrived.
+                    for (const [key, op] of batch) if (!queue.has(key)) queue.set(key, op);
+                    summaryDirty = summaryDirty || sendSummary;
+                    set({
+                        syncStatus: result.status === 401 ? 'reauth' : 'error',
+                        syncError: result.error || 'Could not save your changes.',
+                        pendingChanges: queue.size,
+                    });
+                    throw new Error(result.error || 'Save failed');
+                }
+
+                set({
+                    syncStatus: queue.size > 0 ? 'saving' : 'idle',
+                    syncError: null,
+                    pendingChanges: queue.size,
+                    lastSavedAt: Date.now(),
+                });
+            })();
+
+            inflight = run;
+            try {
+                await run;
+            } finally {
+                inflight = null;
+            }
+            if (queue.size > 0) scheduleFlush();
+        },
+
+        retrySync: async () => {
+            summaryDirty = summaryDirty || queue.size > 0;
+            await get().flush();
+        },
+
+        repairFile: async () => {
+            await get().flush();
+            const { file } = get();
+            if (!file) throw new Error('No spreadsheet connected');
+            const result = await callApi<RepairReport>('/api/storage/repair', { fileId: file.id });
+            if (!result.ok || !result.data) {
+                if (result.status === 401) set({ syncStatus: 'reauth', syncError: result.error ?? null });
+                throw new Error(result.error || 'Repair failed');
+            }
+            await get().loadData({ background: true });
+            summaryDirty = true;
+            await get().flush();
+            return result.data;
+        },
+
+        reset: () => {
+            if (timer) clearTimeout(timer);
+            timer = null;
+            queue.clear();
+            summaryDirty = false;
+            set({ ...initialState });
+        },
+    };
+});
