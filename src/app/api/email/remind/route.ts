@@ -7,7 +7,8 @@ import { authOptions } from '@/lib/auth';
  * Sends Zakat anniversary reminders via Resend.
  *
  * Requires a signed-in session. The email is always sent to the signed-in
- * user's own address — callers cannot choose the recipient.
+ * user's own address — callers cannot choose the recipient. At most
+ * RATE_LIMIT emails per user per hour (see note on rateLimited).
  *
  * Body: {
  *   type: '30day' | '7day' | 'dayof' | 'receipt'
@@ -32,6 +33,27 @@ const subjects: Record<string, string> = {
 };
 
 const MAX_DONATIONS = 200;
+
+const RATE_LIMIT = 5;
+const RATE_WINDOW_MS = 60 * 60 * 1000;
+const recentSends = new Map<string, number[]>();
+
+/**
+ * Per-user limit, kept in memory. On serverless hosting each instance keeps
+ * its own count, so this is a brake on accidental loops, not a hard cap; the
+ * real protection is that mail only ever goes to the signed-in user.
+ */
+function rateLimited(user: string): boolean {
+    const now = Date.now();
+    const sends = (recentSends.get(user) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+    if (sends.length >= RATE_LIMIT) {
+        recentSends.set(user, sends);
+        return true;
+    }
+    sends.push(now);
+    recentSends.set(user, sends);
+    return false;
+}
 
 function escapeHtml(value: unknown): string {
     return String(value ?? '')
@@ -148,6 +170,10 @@ export async function POST(request: Request) {
     const to = session?.user?.email;
     if (!session || !to) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if (rateLimited(to.toLowerCase())) {
+        return NextResponse.json({ error: 'Too many emails. Try again later.' }, { status: 429 });
     }
 
     if (!RESEND_API_KEY) {
