@@ -20,7 +20,8 @@ import {
 import { useState, useEffect } from 'react';
 import Logo from '@/components/Logo';
 import { useTheme } from 'next-themes';
-import { Button } from '@/components/ui/button';
+import SyncStatus from '@/components/SyncStatus';
+import { useZakatStore } from '@/lib/store';
 
 const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -116,6 +117,8 @@ export default function Sidebar() {
                         })}
                     </nav>
 
+                    <SyncStatus />
+
                     {/* User & Sign Out */}
                     <div className="p-4 mx-4 mb-4 rounded-xl bg-secondary/50 border border-border">
                         <div className="flex items-center gap-3">
@@ -139,7 +142,11 @@ export default function Sidebar() {
                                 </p>
                             </div>
                             <button
-                                onClick={() => signOut({ callbackUrl: '/' })}
+                                onClick={() => {
+                                    // Clear in-memory data before leaving.
+                                    useZakatStore.getState().reset();
+                                    signOut({ callbackUrl: '/' });
+                                }}
                                 className="p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
                                 title="Sign out"
                             >

@@ -47,7 +47,7 @@ type Status =
     | { step: 'done'; added: number; failed: number };
 
 export default function ImportPage() {
-    const { selectedYear, settings, assets, liabilities, history, addAsset, addLiability } = useZakatStore();
+    const { selectedYear, settings, assets, liabilities, history } = useZakatStore();
     const [status, setStatus] = useState<Status>({ step: 'pick' });
     const [drafts, setDrafts] = useState<DraftRow[]>([]);
     const [zakatYear, setZakatYear] = useState(selectedYear);
@@ -122,36 +122,19 @@ export default function ImportPage() {
 
     const save = async () => {
         const store = useZakatStore.getState();
-        const headers = { 'Content-Type': 'application/json', 'x-spreadsheet-id': store.spreadsheetId || '' };
-        let done = 0, failed = 0;
-        setStatus({ step: 'saving', done, total: selected.length });
-        // One at a time, so rows land in the Sheet in order and a failure is visible.
+        setStatus({ step: 'saving', done: 0, total: selected.length });
+        // Rows go into the store's save queue and are written to the
+        // spreadsheet in one batch. If that save fails, the rows stay queued
+        // and the app shows its Retry banner, so nothing is lost.
         for (const d of selected) {
-            try {
-                if (d.target === 'asset') {
-                    const asset = draftToAsset(d, zakatYear);
-                    const res = await fetch('/api/sheets/assets', { method: 'POST', headers, body: JSON.stringify(asset) });
-                    if (!res.ok) throw new Error(await res.text());
-                    addAsset(asset);
-                } else if (d.target === 'liability') {
-                    const liability = draftToLiability(d, zakatYear);
-                    const res = await fetch('/api/sheets/liabilities', { method: 'POST', headers, body: JSON.stringify(liability) });
-                    if (!res.ok) throw new Error(await res.text());
-                    addLiability(liability);
-                } else {
-                    const entry = draftToHistory(d);
-                    const res = await fetch('/api/sheets/history', { method: 'POST', headers, body: JSON.stringify(entry) });
-                    if (!res.ok) throw new Error(await res.text());
-                    useZakatStore.getState().setHistory([...useZakatStore.getState().history, entry]);
-                }
-                done++;
-            } catch (e) {
-                console.error('Import row failed', d.label, e);
-                failed++;
-            }
-            setStatus({ step: 'saving', done: done + failed, total: selected.length });
+            if (d.target === 'asset') store.addAsset(draftToAsset(d, zakatYear));
+            else if (d.target === 'liability') store.addLiability(draftToLiability(d, zakatYear));
+            else store.saveHistoryEntry(draftToHistory(d));
         }
-        setStatus({ step: 'done', added: done, failed });
+        await store.flush();
+        const { syncStatus } = useZakatStore.getState();
+        const saved = syncStatus === 'error' || syncStatus === 'reauth' ? 0 : selected.length;
+        setStatus({ step: 'done', added: saved, failed: selected.length - saved });
     };
 
     const downloadTemplate = (kind: ImportKind) => {
@@ -347,7 +330,7 @@ export default function ImportPage() {
                 <div className="rounded-xl border border-border bg-card p-8 text-center space-y-2">
                     <CheckCircle2 className="mx-auto text-emerald-600" size={28} />
                     <p className="text-sm text-foreground">Added {status.added} {status.added === 1 ? 'row' : 'rows'} to your Sheet.</p>
-                    {status.failed > 0 && <p className="text-xs text-red-600">{status.failed} could not be saved; they are listed in the browser console.</p>}
+                    {status.failed > 0 && <p className="text-xs text-red-600">{status.failed} not saved yet. They stay queued: use Retry in the banner at the top of the page.</p>}
                     <button onClick={reset} className="text-sm text-emerald-700 dark:text-emerald-400 hover:underline">Import another file</button>
                 </div>
             )}
