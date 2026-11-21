@@ -14,14 +14,16 @@
 import type {
     Asset,
     DonationEntry,
+    DonationPlan,
     HistoryEntry,
+    InterestEntry,
     Liability,
     Settings,
 } from '../types';
 import { DEFAULT_SETTINGS } from '../types';
 
 /** Bump when the layout changes; older sheets are upgraded on next load. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export type ColumnType = 'string' | 'number' | 'money' | 'percent' | 'year' | 'boolean' | 'enum' | 'date';
 
@@ -43,7 +45,7 @@ export interface Column {
     hidden?: boolean;
 }
 
-export type EntityName = 'settings' | 'assets' | 'liabilities' | 'history' | 'donations';
+export type EntityName = 'settings' | 'assets' | 'liabilities' | 'history' | 'donations' | 'donationPlans' | 'interest';
 
 export interface TabSchema {
     entity: EntityName;
@@ -146,7 +148,31 @@ const CALC_BASIS_OPTIONS = opts([
 const DONATION_CATEGORY_OPTIONS = opts([
     ['Zakat', 'Zakat'],
     ['Sadaqah', 'Sadaqah'],
+    ['Interest', 'Interest Given Away'],
     ['Other', 'Other'],
+]);
+
+const PLAN_CATEGORY_OPTIONS = DONATION_CATEGORY_OPTIONS.filter((o) => o.value !== 'Other');
+
+const PLAN_FREQUENCY_OPTIONS = opts([
+    ['once', 'One payment'],
+    ['weekly', 'Weekly'],
+    ['biweekly', 'Every 2 weeks'],
+    ['semimonthly', 'Twice a month'],
+    ['monthly', 'Monthly'],
+    ['quarterly', 'Every 3 months'],
+]);
+
+const PLAN_STATUS_OPTIONS = opts([
+    ['active', 'Active'],
+    ['completed', 'Completed'],
+    ['cancelled', 'Cancelled'],
+]);
+
+const INTEREST_PERIOD_OPTIONS = opts([
+    ['month', 'Month'],
+    ['year', 'Year'],
+    ['other', 'Other'],
 ]);
 
 // ─── Tabs ─────────────────────────────────────────────────
@@ -196,6 +222,7 @@ export const ASSETS_TAB: TabSchema = {
         { key: 'deductibleTaxPenalty', header: 'Not Zakatable (base currency)', legacy: ['Deductible_Tax_Penalty'], type: 'money' },
         { key: 'netZakatableValue', header: 'Zakatable (base currency)', legacy: ['Net_Zakatable_Value'], type: 'money' },
         { key: 'retirementAccountType', header: 'Retirement Account', legacy: ['Retirement_Account_Type'], type: 'enum', options: RETIREMENT_ACCOUNT_OPTIONS },
+        { key: 'earnsInterest', header: 'Earns Interest', type: 'boolean' },
     ],
 };
 
@@ -243,6 +270,43 @@ export const DONATIONS_TAB: TabSchema = {
         { key: 'amount', header: 'Amount', type: 'money' },
         { key: 'recipient', header: 'Recipient', type: 'string' },
         { key: 'notes', header: 'Notes', type: 'string' },
+        // One payment split across recipients shares a Payment ID; plan instalments carry the Plan ID.
+        { key: 'paymentId', header: 'Payment ID', type: 'string', hidden: true },
+        { key: 'planId', header: 'Plan ID', type: 'string', hidden: true },
+    ],
+};
+
+export const DONATION_PLANS_TAB: TabSchema = {
+    entity: 'donationPlans',
+    title: 'Donation Plans',
+    keyField: 'id',
+    columns: [
+        { key: 'id', header: 'ID', type: 'string', hidden: true },
+        { key: 'zakatYear', header: 'Zakat Year', type: 'year' },
+        { key: 'category', header: 'Category', type: 'enum', options: PLAN_CATEGORY_OPTIONS },
+        { key: 'totalAmount', header: 'Total', type: 'money' },
+        { key: 'frequency', header: 'How Often', type: 'enum', options: PLAN_FREQUENCY_OPTIONS },
+        { key: 'startDate', header: 'First Payment', type: 'date' },
+        { key: 'numberOfPayments', header: 'Number of Payments', type: 'number' },
+        { key: 'status', header: 'Status', type: 'enum', options: PLAN_STATUS_OPTIONS },
+        { key: 'notes', header: 'Notes', type: 'string' },
+    ],
+};
+
+export const INTEREST_TAB: TabSchema = {
+    entity: 'interest',
+    title: 'Interest',
+    keyField: 'id',
+    columns: [
+        { key: 'id', header: 'ID', type: 'string', hidden: true },
+        { key: 'zakatYear', header: 'Zakat Year', type: 'year' },
+        { key: 'date', header: 'Date', type: 'date' },
+        { key: 'accountName', header: 'Account', type: 'string' },
+        { key: 'currency', header: 'Currency', type: 'string' },
+        { key: 'amount', header: 'Interest Earned', type: 'money' },
+        { key: 'period', header: 'Period', type: 'enum', options: INTEREST_PERIOD_OPTIONS },
+        { key: 'notes', header: 'Notes', type: 'string' },
+        { key: 'assetId', header: 'Asset ID', type: 'string', hidden: true },
     ],
 };
 
@@ -251,6 +315,8 @@ export const DATA_TABS: TabSchema[] = [
     ASSETS_TAB,
     LIABILITIES_TAB,
     DONATIONS_TAB,
+    DONATION_PLANS_TAB,
+    INTEREST_TAB,
     HISTORY_TAB,
     SETTINGS_TAB,
 ];
@@ -464,5 +530,36 @@ export function toDonation(r: Record<string, unknown>): DonationEntry {
         recipient: (r.recipient as string) ?? '',
         notes: (r.notes as string) ?? '',
         category: (r.category as DonationEntry['category']) ?? 'Other',
+        paymentId: r.paymentId as string | undefined,
+        planId: r.planId as string | undefined,
+    };
+}
+
+export function toDonationPlan(r: Record<string, unknown>): DonationPlan {
+    const frequency = (r.frequency as DonationPlan['frequency']) ?? 'monthly';
+    return {
+        id: r.id as string,
+        zakatYear: (r.zakatYear as string) ?? thisYear(),
+        category: (r.category as DonationPlan['category']) ?? 'Zakat',
+        totalAmount: (r.totalAmount as number) ?? 0,
+        frequency,
+        startDate: (r.startDate as string) ?? '',
+        numberOfPayments: frequency === 'once' ? 1 : Math.max(1, Math.round((r.numberOfPayments as number) ?? 1)),
+        status: (r.status as DonationPlan['status']) ?? 'active',
+        notes: (r.notes as string) ?? '',
+    };
+}
+
+export function toInterestEntry(r: Record<string, unknown>): InterestEntry {
+    return {
+        id: r.id as string,
+        zakatYear: (r.zakatYear as string) ?? thisYear(),
+        date: (r.date as string) ?? '',
+        assetId: r.assetId as string | undefined,
+        accountName: (r.accountName as string) ?? '',
+        currency: (r.currency as string) ?? 'USD',
+        amount: (r.amount as number) ?? 0,
+        period: (r.period as InterestEntry['period']) ?? 'other',
+        notes: (r.notes as string) ?? '',
     };
 }

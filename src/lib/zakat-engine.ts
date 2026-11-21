@@ -215,11 +215,17 @@ export function calculateAssetNetValue(
 
 // ─── Full Dashboard Calculation Pipeline ──────────────────
 
+/**
+ * @param interestToGiveAway interest earned but not yet given away, in the base
+ *   currency. It must be given away in full, so it is not the owner's wealth and
+ *   is deducted like a debt before the Nisab test (see src/lib/donations.ts).
+ */
 export function calculateDashboard(
     assets: Asset[],
     liabilities: Liability[],
     settings: Settings,
-    prices: PriceData
+    prices: PriceData,
+    interestToGiveAway = 0
 ): DashboardSummary {
     const zakatRate = getZakatRate(settings.calculationBasis);
     const nisabThreshold = calculateNisab(settings.nisabStandard, prices, settings.baseCurrency);
@@ -254,7 +260,8 @@ export function calculateDashboard(
     );
 
     // Net zakatable wealth
-    const netZakatableWealth = Math.max(0, totalNetZakatableAssets - liabilityDeduction);
+    const interestDeduction = Math.max(0, interestToGiveAway);
+    const netZakatableWealth = Math.max(0, totalNetZakatableAssets - liabilityDeduction - interestDeduction);
     const isAboveNisab = netZakatableWealth >= nisabThreshold;
     const zakatDue = isAboveNisab ? netZakatableWealth * zakatRate : 0;
 
@@ -273,6 +280,7 @@ export function calculateDashboard(
         totalNetZakatableAssets,
         totalLiabilities,
         liabilityDeduction,
+        interestToGiveAway: interestDeduction,
         netZakatableWealth,
         nisabThreshold,
         isAboveNisab,

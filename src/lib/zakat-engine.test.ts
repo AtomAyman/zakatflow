@@ -204,6 +204,21 @@ describe('calculateDashboard', () => {
         expect(result.zakatDue).toBe(0);
     });
 
+    it('deducts interest still to be given away: it is not the owner\'s wealth', () => {
+        const result = calculateDashboard([asset({ grossValue: 20000 })], [], hanafi, prices, 1000);
+        expect(result.interestToGiveAway).toBe(1000);
+        expect(result.netZakatableWealth).toBe(19000);
+        expect(result.zakatDue).toBeCloseTo(475);
+    });
+
+    it('interest still held can take wealth below nisab (gold nisab here: 85 g x 100 = 8,500)', () => {
+        expect(calculateDashboard([asset({ grossValue: 9000 })], [], hanafi, prices).zakatDue).toBeCloseTo(225);
+        const withInterest = calculateDashboard([asset({ grossValue: 9000 })], [], hanafi, prices, 600);
+        expect(withInterest.netZakatableWealth).toBe(8400);
+        expect(withInterest.isAboveNisab).toBe(false);
+        expect(withInterest.zakatDue).toBe(0);
+    });
+
     it('never lets debts push wealth below zero', () => {
         const result = calculateDashboard(
             [asset({ grossValue: 100 })],

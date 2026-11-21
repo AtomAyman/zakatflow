@@ -1,4 +1,4 @@
-import type { Asset, DonationEntry, HistoryEntry, Liability, Settings } from '../types';
+import type { Asset, DonationEntry, DonationPlan, HistoryEntry, InterestEntry, Liability, Settings } from '../types';
 
 /**
  * Everything the app keeps for a user. Loaded once per session and held in
@@ -10,6 +10,8 @@ export interface UserData {
     liabilities: Liability[];
     history: HistoryEntry[];
     donations: DonationEntry[];
+    donationPlans: DonationPlan[];
+    interest: InterestEntry[];
 }
 
 /** A single change to save. Ops on the same record are coalesced client-side. */
@@ -19,7 +21,9 @@ export type ChangeOp =
     | { entity: 'liabilities'; action: 'upsert'; record: Liability }
     | { entity: 'history'; action: 'upsert'; record: HistoryEntry }
     | { entity: 'donations'; action: 'upsert'; record: DonationEntry }
-    | { entity: 'assets' | 'liabilities' | 'donations'; action: 'delete'; key: string }
+    | { entity: 'donationPlans'; action: 'upsert'; record: DonationPlan }
+    | { entity: 'interest'; action: 'upsert'; record: InterestEntry }
+    | { entity: 'assets' | 'liabilities' | 'donations' | 'donationPlans' | 'interest'; action: 'delete'; key: string }
     | { entity: 'history'; action: 'delete'; key: string };
 
 /** One row of the human-readable Summary tab, calculated by the app. */

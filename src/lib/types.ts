@@ -109,6 +109,9 @@ export interface Asset {
   // Debt receivable
   debtStrength?: 'Strong' | 'Weak' | 'Intermediate';
 
+  // Interest: the account pays interest that must be given away (see InterestEntry)
+  earnsInterest?: boolean;
+
   // Computed (in base currency)
   deductibleTaxPenalty: number;
   netZakatableValue: number;
@@ -129,6 +132,16 @@ export interface Liability {
 
 // ─── Donation Entry ──────────────────────────────────────
 
+/**
+ * One allocation of money to one recipient. A payment split across several
+ * charities is several entries sharing a `paymentId`; an instalment of a
+ * payment plan also carries the plan's `planId`.
+ *
+ * 'Interest' = interest given away (purification). It is not Zakat and not
+ * Sadaqah: it never counts toward Zakat due and carries no expectation of reward.
+ */
+export type DonationCategory = 'Zakat' | 'Sadaqah' | 'Interest' | 'Other';
+
 export interface DonationEntry {
   id: string; // Unique identifier for the donation
   zakatYear?: string; // e.g. "2025" — which Zakat year this payment counts toward
@@ -136,7 +149,41 @@ export interface DonationEntry {
   amount: number;
   recipient: string;
   notes: string;
-  category: 'Zakat' | 'Sadaqah' | 'Other';
+  category: DonationCategory;
+  /** Groups the allocations of one payment (several recipients, one payment). */
+  paymentId?: string;
+  /** Set when the payment is an instalment of a donation plan. */
+  planId?: string;
+}
+
+// ─── Donation plans (pay once or in instalments) ─────────
+
+export type PlanFrequency = 'once' | 'weekly' | 'biweekly' | 'semimonthly' | 'monthly' | 'quarterly';
+
+export interface DonationPlan {
+  id: string;
+  zakatYear: string;           // the Zakat year this plan pays toward
+  category: Exclude<DonationCategory, 'Other'>;
+  totalAmount: number;         // in base currency
+  frequency: PlanFrequency;
+  startDate: string;           // YYYY-MM-DD, first instalment
+  numberOfPayments: number;    // 1 for 'once'
+  status: 'active' | 'completed' | 'cancelled';
+  notes: string;
+}
+
+// ─── Interest earned (to be given away in full) ──────────
+
+export interface InterestEntry {
+  id: string;
+  zakatYear: string;           // Zakat year the interest was earned in
+  date: string;                // statement date / end of the period
+  assetId?: string;            // account it was earned on, if recorded on an asset
+  accountName: string;
+  currency: string;
+  amount: number;              // in `currency`
+  period: 'month' | 'year' | 'other';
+  notes: string;
 }
 
 // ─── History ──────────────────────────────────────────────
@@ -161,6 +208,8 @@ export interface DashboardSummary {
   totalNetZakatableAssets: number;
   totalLiabilities: number;
   liabilityDeduction: number;
+  /** Interest held but not yet given away: not the owner's wealth, so not Zakatable. */
+  interestToGiveAway: number;
   netZakatableWealth: number;
   nisabThreshold: number;
   isAboveNisab: boolean;

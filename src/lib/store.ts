@@ -7,12 +7,15 @@ import {
     type Liability,
     type HistoryEntry,
     type DonationEntry,
+    type DonationPlan,
+    type InterestEntry,
     type PriceData,
     type DashboardSummary,
     DEFAULT_SETTINGS,
     DEFAULT_PRICES,
 } from './types';
 import { calculateDashboard, calculateAssetNetValue } from './zakat-engine';
+import { interestBalance, type Allocation } from './donations';
 import type { ChangeOp, RepairReport, StorageFile, SummaryPayload, UserData, YearSummary } from './storage/types';
 import { v4 as uuid } from 'uuid';
 
@@ -36,6 +39,8 @@ interface ZakatStore {
     liabilities: Liability[]; // ALL liabilities across all years
     history: HistoryEntry[];
     donations: DonationEntry[]; // ALL donations across all years
+    donationPlans: DonationPlan[];
+    interest: InterestEntry[];  // interest earned, ALL years
     prices: PriceData;
     selectedYear: string;
     dashboard: DashboardSummary;
@@ -64,6 +69,14 @@ interface ZakatStore {
     saveHistoryEntry: (entry: HistoryEntry) => void;
     saveDonation: (donation: Omit<DonationEntry, 'id'>) => Promise<void>;
     deleteDonation: (id: string) => Promise<void>;
+    /** One payment, split across one or more recipients (one Donations row each). */
+    savePayment: (payment: PaymentInput) => Promise<void>;
+    /** Delete every row of a payment. */
+    deletePayment: (paymentId: string) => Promise<void>;
+    saveDonationPlan: (plan: DonationPlan) => Promise<void>;
+    deleteDonationPlan: (id: string) => Promise<void>;
+    saveInterest: (entry: InterestEntry) => Promise<void>;
+    deleteInterest: (id: string) => Promise<void>;
     copyYearData: (fromYear: string, toYear: string) => void;
     saveCurrentSettings: () => Promise<void>;
 
@@ -81,6 +94,15 @@ interface ZakatStore {
     reset: () => void;
 }
 
+export interface PaymentInput {
+    date: string;
+    zakatYear: string;
+    category: DonationEntry['category'];
+    notes: string;
+    planId?: string;
+    allocations: Allocation[];
+}
+
 const currentYear = new Date().getFullYear().toString();
 
 const defaultDashboard: DashboardSummary = {
@@ -89,6 +111,7 @@ const defaultDashboard: DashboardSummary = {
     totalNetZakatableAssets: 0,
     totalLiabilities: 0,
     liabilityDeduction: 0,
+    interestToGiveAway: 0,
     netZakatableWealth: 0,
     nisabThreshold: 0,
     isAboveNisab: false,
@@ -103,6 +126,8 @@ const initialState = {
     liabilities: [] as Liability[],
     history: [] as HistoryEntry[],
     donations: [] as DonationEntry[],
+    donationPlans: [] as DonationPlan[],
+    interest: [] as InterestEntry[],
     prices: DEFAULT_PRICES,
     selectedYear: currentYear,
     dashboard: defaultDashboard,
@@ -165,7 +190,8 @@ async function callApi<T>(url: string, body?: unknown): Promise<ApiResult<T>> {
 
 /** Per-year rows for the spreadsheet's Summary tab. */
 export function buildSummary(
-    state: Pick<ZakatStore, 'assets' | 'liabilities' | 'history' | 'donations' | 'settings' | 'prices'>
+    state: Pick<ZakatStore, 'assets' | 'liabilities' | 'history' | 'donations' | 'settings' | 'prices'> &
+        Partial<Pick<ZakatStore, 'interest'>>
 ): SummaryPayload {
     const years = new Set<string>();
     state.assets.forEach((a) => years.add(a.zakatYear));
@@ -192,7 +218,8 @@ export function buildSummary(
             state.assets.filter((a) => a.zakatYear === year),
             state.liabilities.filter((l) => l.zakatYear === year),
             state.settings,
-            state.prices
+            state.prices,
+            outstandingInterest(state, year)
         );
         return {
             year,
@@ -207,6 +234,15 @@ export function buildSummary(
     });
 
     return { baseCurrency: state.settings.baseCurrency, years: rows };
+}
+
+/** Interest earned through `year` and not yet given away (base currency). */
+export function outstandingInterest(
+    state: Pick<ZakatStore, 'donations' | 'settings' | 'prices'> & Partial<Pick<ZakatStore, 'interest'>>,
+    year: string
+): number {
+    return interestBalance(state.interest ?? [], state.donations, state.settings.baseCurrency, state.prices.exchangeRates, year)
+        .outstanding;
 }
 
 export const useZakatStore = create<ZakatStore>((set, get) => {
@@ -279,12 +315,63 @@ export const useZakatStore = create<ZakatStore>((set, get) => {
         saveDonation: async (donation) => {
             const entry: DonationEntry = { ...donation, id: uuid() };
             set((s) => ({ donations: [entry, ...s.donations] }));
+            get().recalculate();
             enqueue({ entity: 'donations', action: 'upsert', record: entry });
             await get().flush();
         },
         deleteDonation: async (id) => {
             set((s) => ({ donations: s.donations.filter((d) => d.id !== id) }));
+            get().recalculate();
             enqueue({ entity: 'donations', action: 'delete', key: id });
+            await get().flush();
+        },
+        savePayment: async (payment) => {
+            const paymentId = uuid();
+            const entries: DonationEntry[] = payment.allocations.map((a) => ({
+                id: uuid(),
+                paymentId,
+                planId: payment.planId,
+                zakatYear: payment.zakatYear,
+                date: payment.date,
+                category: payment.category,
+                notes: payment.notes,
+                recipient: a.recipient.trim(),
+                amount: Math.round(a.amount * 100) / 100,
+            }));
+            set((s) => ({ donations: [...entries, ...s.donations] }));
+            // Interest given away changes what is Zakatable.
+            get().recalculate();
+            enqueue(...entries.map((record): ChangeOp => ({ entity: 'donations', action: 'upsert', record })));
+            await get().flush();
+        },
+        deletePayment: async (paymentId) => {
+            const ids = get().donations.filter((d) => (d.paymentId ?? d.id) === paymentId).map((d) => d.id);
+            set((s) => ({ donations: s.donations.filter((d) => !ids.includes(d.id)) }));
+            get().recalculate();
+            enqueue(...ids.map((key): ChangeOp => ({ entity: 'donations', action: 'delete', key })));
+            await get().flush();
+        },
+        saveDonationPlan: async (plan) => {
+            set((s) => ({ donationPlans: [...s.donationPlans.filter((p) => p.id !== plan.id), plan] }));
+            enqueue({ entity: 'donationPlans', action: 'upsert', record: plan });
+            await get().flush();
+        },
+        deleteDonationPlan: async (id) => {
+            // Payments already made stay in the ledger; they just lose the plan link in the UI.
+            set((s) => ({ donationPlans: s.donationPlans.filter((p) => p.id !== id) }));
+            enqueue({ entity: 'donationPlans', action: 'delete', key: id });
+            await get().flush();
+        },
+        saveInterest: async (entry) => {
+            set((s) => ({ interest: [...s.interest.filter((e) => e.id !== entry.id), entry] }));
+            get().recalculate();
+            enqueue({ entity: 'interest', action: 'upsert', record: entry });
+            await get().flush();
+        },
+        deleteInterest: async (id) => {
+            set((s) => ({ interest: s.interest.filter((e) => e.id !== id) }));
+            get().recalculate();
+            enqueue({ entity: 'interest', action: 'delete', key: id });
             await get().flush();
         },
         copyYearData: (fromYear, toYear) => {
@@ -327,7 +414,13 @@ export const useZakatStore = create<ZakatStore>((set, get) => {
             const { assets, liabilities, settings, prices, selectedYear } = get();
             const yearAssets = assets.filter((a) => a.zakatYear === selectedYear);
             const yearLiabilities = liabilities.filter((l) => l.zakatYear === selectedYear);
-            const dashboard = calculateDashboard(yearAssets, yearLiabilities, settings, prices);
+            const dashboard = calculateDashboard(
+                yearAssets,
+                yearLiabilities,
+                settings,
+                prices,
+                outstandingInterest(get(), selectedYear)
+            );
 
             // Stamp computed values back onto each asset for display
             const updatedAssets = assets.map((asset) => {
@@ -373,6 +466,8 @@ export const useZakatStore = create<ZakatStore>((set, get) => {
                 liabilities: data.liabilities,
                 history: data.history,
                 donations: data.donations,
+                donationPlans: data.donationPlans ?? [],
+                interest: data.interest ?? [],
                 prices: prices?.data || DEFAULT_PRICES,
                 loadStatus: 'ready',
             });

@@ -12,6 +12,8 @@ import {
     rowToRecord,
     toAsset,
     toDonation,
+    toDonationPlan,
+    toInterestEntry,
     toHistoryEntry,
     toLiability,
     toSettings,
@@ -470,5 +472,7 @@ function toUserData(tabs: Partial<Record<EntityName, TabState>>): UserData {
         liabilities: records('liabilities').filter((r) => r.id).map(toLiability),
         history: records('history').filter((r) => r.year).map(toHistoryEntry),
         donations: records('donations').filter((r) => r.id).map(toDonation),
+        donationPlans: records('donationPlans').filter((r) => r.id).map(toDonationPlan),
+        interest: records('interest').filter((r) => r.id).map(toInterestEntry),
     };
 }

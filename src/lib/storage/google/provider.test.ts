@@ -53,14 +53,14 @@ describe('load', () => {
 
         expect(file.appProperties.zakatApp).toBe('primary');
         expect(file.sheets.map((s) => s.title).sort()).toEqual(
-            ['Assets', 'Donations', 'History', 'Liabilities', 'Settings', SUMMARY_TITLE].sort()
+            ['Assets', 'Donations', 'Donation Plans', 'Interest', 'History', 'Liabilities', 'Settings', SUMMARY_TITLE].sort()
         );
         expect(file.sheets.find((s) => s.title === 'Sheet1')).toBeUndefined();
         expect(google.sheet(result.file.id, 'Assets')!.values[0]).toEqual(ASSETS_TAB.columns.map((c) => c.header));
         expect(result.data.settings.madhab).toBe('Hanafi');
         expect(result.data.assets).toEqual([]);
         expect(result.summaryStale).toBe(true);
-        expect(file.metadata.find((m) => m.metadataKey === META_SCHEMA_VERSION)?.metadataValue).toBe('2');
+        expect(file.metadata.find((m) => m.metadataKey === META_SCHEMA_VERSION)?.metadataValue).toBe('3');
 
         // Every data tab is protected with a warning, and the ID column is hidden.
         expect(google.sheet(result.file.id, 'Assets')!.protectedRanges).toHaveLength(1);
@@ -102,7 +102,11 @@ describe('load', () => {
         expect(assets.values[1][2]).toBe('Money Owed to You');
         expect(assets.values[1][8]).toBe(false);
         expect(google.sheet(id, 'Donations')).toBeDefined();
+        expect(google.sheet(id, 'Donation Plans')).toBeDefined();
+        expect(google.sheet(id, 'Interest')).toBeDefined();
         expect(google.sheet(id, SUMMARY_TITLE)).toBeDefined();
+        expect(result.data.donationPlans).toEqual([]);
+        expect(result.data.interest).toEqual([]);
 
         // Upgrading only happens once.
         const again = await provider.load();
@@ -121,6 +125,34 @@ describe('load', () => {
         const assets = google.sheet(id, 'Assets')!;
         expect(assets.values[0].slice(0, 3)).toEqual(['ID', 'Name', 'My notes']);
         expect(assets.values[1][2]).toBe('for Hajj');
+    });
+});
+
+describe('donation plans, split payments and interest', () => {
+    it('round-trip through the sheet with readable labels', async () => {
+        const { file } = await provider.load();
+        await provider.applyChanges(file.id, [
+            {
+                entity: 'donationPlans', action: 'upsert',
+                record: { id: 'p1', zakatYear: '2026', category: 'Zakat', totalAmount: 1200, frequency: 'biweekly', startDate: '2026-04-03', numberOfPayments: 26, status: 'active', notes: '' },
+            },
+            // One payment of $100 split between two recipients, as an instalment of p1
+            { entity: 'donations', action: 'upsert', record: { id: 'd1', paymentId: 'pay1', planId: 'p1', zakatYear: '2026', date: '2026-04-03', amount: 60, recipient: 'Masjid', notes: '', category: 'Zakat' } },
+            { entity: 'donations', action: 'upsert', record: { id: 'd2', paymentId: 'pay1', planId: 'p1', zakatYear: '2026', date: '2026-04-03', amount: 40, recipient: 'Food bank', notes: '', category: 'Zakat' } },
+            { entity: 'donations', action: 'upsert', record: { id: 'd3', zakatYear: '2026', date: '2026-05-01', amount: 25, recipient: 'Hospital', notes: '', category: 'Interest' } },
+            { entity: 'interest', action: 'upsert', record: { id: 'i1', zakatYear: '2026', date: '2026-04-30', assetId: 'a9', accountName: 'Chase savings', currency: 'USD', amount: 25, period: 'month', notes: '' } },
+        ]);
+
+        const plans = google.sheet(file.id, 'Donation Plans')!.values;
+        expect(plans[1]).toContain('Every 2 weeks');
+        expect(google.sheet(file.id, 'Donations')!.values.some((r) => r.includes('Interest Given Away'))).toBe(true);
+        expect(google.sheet(file.id, 'Interest')!.values[1]).toContain('Chase savings');
+
+        const { data } = await provider.load();
+        expect(data.donationPlans).toEqual([expect.objectContaining({ id: 'p1', frequency: 'biweekly', numberOfPayments: 26, totalAmount: 1200 })]);
+        expect(data.donations.filter((d) => d.paymentId === 'pay1').map((d) => d.amount).sort()).toEqual([40, 60]);
+        expect(data.donations.find((d) => d.id === 'd3')).toMatchObject({ category: 'Interest' });
+        expect(data.interest).toEqual([expect.objectContaining({ id: 'i1', assetId: 'a9', amount: 25, period: 'month' })]);
     });
 });
 

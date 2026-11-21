@@ -1,6 +1,6 @@
 import type { ChangeOp, SummaryPayload } from './types';
 
-const KEYED = new Set(['assets', 'liabilities', 'donations', 'history']);
+const KEYED = new Set(['assets', 'liabilities', 'donations', 'donationPlans', 'interest', 'history']);
 const MAX_OPS = 500;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
