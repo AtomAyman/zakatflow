@@ -158,6 +158,10 @@ export function calculateAssetNetValue(
             if (asset.zakatMethod === 'Passive_Proxy') {
                 // Scholar-approved 30% proxy
                 zakatablePercent = 30;
+            } else if (asset.zakatMethod === 'Filings') {
+                // From the company's own SEC filings (lib/stock-zakat), already
+                // expressed as % of market value. Proxy if not yet fetched.
+                zakatablePercent = asset.zakatableAssetPercent ?? 30;
             } else if (asset.zakatMethod === 'Commodity_ETF') {
                 // Commodity ETFs: 100% of market value
                 zakatablePercent = 100;

@@ -24,7 +24,9 @@ export type AssetType =
 export type StockHoldingType = 'Short_Term' | 'Long_Term';
 export type RetirementType = 'Mandatory' | 'Voluntary';
 export type CryptoIntent = 'Currency' | 'Resale' | 'Platform_Token';
-export type ZakatMethod = 'Market' | 'Passive_Proxy' | 'Manual' | 'Commodity_ETF';
+export type ZakatMethod = 'Market' | 'Passive_Proxy' | 'Manual' | 'Commodity_ETF' | 'Filings';
+// Which filings-based formula produced zakatableAssetPercent (see lib/stock-zakat)
+export type FilingsMethod = 'Asset_Ratio' | 'Per_Share';
 export type WeightUnit = 'grams' | 'troy_oz' | 'tola';
 
 export type RetirementAccountType =
@@ -84,6 +86,11 @@ export interface Asset {
   ticker?: string;
   quantity?: number;
   zakatableAssetPercent?: number; // for long-term: % of company assets that are zakatable
+
+  // Filings-based (zakatMethod === 'Filings'): evidence for the percentage above
+  filingsMethod?: FilingsMethod;
+  filingPeriodEnd?: string;   // balance-sheet date used, YYYY-MM-DD
+  filingAccession?: string;   // SEC accession number of the filing
 
   // Retirement-specific
   retirementType?: RetirementType;
