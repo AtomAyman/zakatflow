@@ -5,6 +5,7 @@ import SummaryCard from '@/components/SummaryCard';
 import NisabThermometer from '@/components/NisabThermometer';
 import NisabCard from '@/components/NisabCard';
 import HawlTracker from '@/components/HawlTracker';
+import ZakatPaymentCard from '@/components/donations/ZakatPaymentCard';
 import {
     DollarSign,
     TrendingUp,
@@ -113,6 +114,9 @@ export default function DashboardPage() {
                     accent="emerald"
                 />
             </div>
+
+            {/* After Zakat is calculated: pay once or in instalments */}
+            <ZakatPaymentCard linkToLedger />
 
             {/* Live prices bar */}
             {prices.lastUpdated && (
@@ -271,6 +275,12 @@ export default function DashboardPage() {
                                 <span className="text-muted-foreground">Liability Deduction ({settings.madhab})</span>
                                 <span className="font-semibold text-destructive">−{formatCurrency(dashboard.liabilityDeduction)}</span>
                             </div>
+                            {dashboard.interestToGiveAway > 0 && (
+                                <div className="flex justify-between items-center pb-2 border-b border-border/50">
+                                    <span className="text-muted-foreground">Interest to give away (not your wealth)</span>
+                                    <span className="font-semibold text-destructive">−{formatCurrency(dashboard.interestToGiveAway)}</span>
+                                </div>
+                            )}
                             <div className="flex justify-between items-center pt-2">
                                 <span className="font-medium text-foreground">Net Zakatable</span>
                                 <span className="font-bold text-foreground text-base">{formatCurrency(dashboard.netZakatableWealth)}</span>

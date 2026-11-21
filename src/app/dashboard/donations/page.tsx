@@ -1,12 +1,44 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useZakatStore } from '@/lib/store';
-import type { DonationEntry } from '@/lib/types';
-import { Plus, Trash2, X, Heart, Download, Calendar } from 'lucide-react';
+import type { DonationCategory, DonationPlan } from '@/lib/types';
+import { FREQUENCY_LABELS, groupPayments, planProgress } from '@/lib/donations';
+import PaymentForm, { type PaymentDefaults } from '@/components/donations/PaymentForm';
+import PlanForm from '@/components/donations/PlanForm';
+import ZakatPaymentCard from '@/components/donations/ZakatPaymentCard';
+import { Plus, Trash2, Heart, Download, Calendar, CalendarClock, Ban } from 'lucide-react';
+
+const CATEGORY_STYLE: Record<DonationCategory, { bar: string; badge: string; label: string }> = {
+    Zakat: { bar: 'bg-emerald-500', badge: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', label: 'Zakat' },
+    Sadaqah: { bar: 'bg-purple-500', badge: 'bg-purple-500/10 text-purple-600 dark:text-purple-400', label: 'Sadaqah' },
+    Interest: { bar: 'bg-amber-500', badge: 'bg-amber-500/10 text-amber-700 dark:text-amber-400', label: 'Interest given away' },
+    Other: { bar: 'bg-blue-500', badge: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', label: 'Other' },
+};
+
+const fmtDate = (d: string, withYear = true) =>
+    new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', {
+        year: withYear ? 'numeric' : undefined,
+        month: 'short',
+        day: 'numeric',
+        timeZone: 'UTC',
+    });
 
 export default function DonationsPage() {
-    const { selectedYear, settings, donations: allDonations, saveDonation, deleteDonation, syncStatus } = useZakatStore();
+    const {
+        selectedYear,
+        settings,
+        donations: allDonations,
+        donationPlans,
+        deletePayment,
+        saveDonationPlan,
+        deleteDonationPlan,
+        syncStatus,
+    } = useZakatStore();
+    const [payment, setPayment] = useState<PaymentDefaults | null>(null);
+    const [planOpen, setPlanOpen] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const today = new Date().toISOString().slice(0, 10);
 
     // Donations are stored in the user's sheet; show the selected Zakat year.
     const donations = useMemo(
@@ -16,88 +48,34 @@ export default function DonationsPage() {
                 .sort((a, b) => b.date.localeCompare(a.date)),
         [allDonations, selectedYear]
     );
-    const [showForm, setShowForm] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    // Form state
-    const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
-    const [newAmount, setNewAmount] = useState('');
-    const [newRecipient, setNewRecipient] = useState('');
-    const [newNotes, setNewNotes] = useState('');
-    const [newCategory, setNewCategory] = useState<DonationEntry['category']>('Zakat');
-
-    const formatCurrency = (n: number) =>
-        new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: settings.baseCurrency || 'USD',
-            maximumFractionDigits: 0,
-        }).format(n);
-
-    const totalDonated = useMemo(() =>
-        donations.reduce((sum, d) => sum + d.amount, 0),
-        [donations]
+    const payments = useMemo(() => groupPayments(donations), [donations]);
+    const plans = useMemo(
+        () => donationPlans.filter((p) => p.zakatYear === selectedYear).sort((a, b) => a.startDate.localeCompare(b.startDate)),
+        [donationPlans, selectedYear]
     );
 
-    const zakatDonated = useMemo(() =>
-        donations.filter(d => d.category === 'Zakat').reduce((s, d) => s + d.amount, 0),
-        [donations]
-    );
+    const fmt = (n: number) =>
+        new Intl.NumberFormat('en-US', { style: 'currency', currency: settings.baseCurrency || 'USD' }).format(n);
+    const sum = (c: DonationCategory) => donations.filter((d) => d.category === c).reduce((s, d) => s + d.amount, 0);
+    const totals = { all: donations.reduce((s, d) => s + d.amount, 0), Zakat: sum('Zakat'), Sadaqah: sum('Sadaqah'), Interest: sum('Interest') };
 
-    const sadaqahDonated = useMemo(() =>
-        donations.filter(d => d.category === 'Sadaqah').reduce((s, d) => s + d.amount, 0),
-        [donations]
-    );
-
-    const resetForm = () => {
-        setNewDate(new Date().toISOString().split('T')[0]);
-        setNewAmount('');
-        setNewRecipient('');
-        setNewNotes('');
-        setNewCategory('Zakat');
-    };
-
-    const handleAdd = async () => {
-        if (!newAmount || Number(newAmount) <= 0) return;
-        setSaving(true);
+    const run = async (p: Promise<void>, verb: string) => {
         setError(null);
-        const saved = saveDonation({
-            zakatYear: selectedYear,
-            date: newDate,
-            amount: Number(newAmount),
-            recipient: newRecipient || 'Unspecified',
-            notes: newNotes,
-            category: newCategory,
-        });
-        // The donation is added (and queued for saving) immediately, so close
-        // the form now; a failed save is retried from the banner, never re-added.
-        resetForm();
-        setShowForm(false);
         try {
-            await saved;
+            await p;
         } catch {
-            setError('Added, but not saved to your spreadsheet yet. Use Retry at the top of the page.');
-        } finally {
-            setSaving(false);
+            setError(`${verb}, but not saved to your spreadsheet yet. Use Retry at the top of the page.`);
         }
     };
 
-    const handleDelete = async (id: string) => {
-        setError(null);
-        try {
-            await deleteDonation(id);
-        } catch {
-            setError('Removed, but not saved to your spreadsheet yet. Use Retry at the top of the page.');
-        }
-    };
+    const setStatus = (plan: DonationPlan, status: DonationPlan['status']) => run(saveDonationPlan({ ...plan, status }), 'Updated');
 
     const exportCSV = () => {
-        const headers = 'Date,Category,Amount,Recipient,Notes\n';
         const quote = (v: string) => `"${v.replace(/"/g, '""')}"`;
-        const rows = donations.map(d =>
-            [d.date, d.category, d.amount, quote(d.recipient), quote(d.notes || '')].join(',')
-        ).join('\n');
-        const blob = new Blob([headers + rows], { type: 'text/csv' });
+        const rows = donations.map((d) =>
+            [d.date, CATEGORY_STYLE[d.category].label, d.amount, quote(d.recipient), quote(d.notes || ''), d.paymentId ?? d.id].join(',')
+        );
+        const blob = new Blob([['Date,Category,Amount,Recipient,Notes,Payment', ...rows].join('\n')], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -115,178 +93,163 @@ export default function DonationsPage() {
                         <Heart size={24} className="text-rose-500" />
                         Donation Ledger
                     </h1>
-                    <p className="text-sm font-medium text-muted-foreground">Track your Zakat & Sadaqah payments for {selectedYear}</p>
+                    <p className="text-sm font-medium text-muted-foreground">Your Zakat, Sadaqah and interest given away for {selectedYear}</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                     {donations.length > 0 && (
-                        <button onClick={exportCSV}
-                            className="inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors border border-border"
-                        >
+                        <button onClick={exportCSV} className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md bg-secondary border border-border hover:bg-secondary/80">
                             <Download size={16} /> Export CSV
                         </button>
                     )}
-                    <button onClick={() => { resetForm(); setShowForm(true); }}
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-rose-600 text-white hover:bg-rose-700 transition-colors shadow-sm"
-                    >
-                        <Plus size={16} /> Add Donation
+                    <button onClick={() => setPlanOpen(true)} className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md bg-secondary border border-border hover:bg-secondary/80">
+                        <CalendarClock size={16} /> Payment plan
+                    </button>
+                    <button onClick={() => setPayment({})} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-rose-600 text-white hover:bg-rose-700 shadow-sm">
+                        <Plus size={16} /> Record payment
                     </button>
                 </div>
             </div>
 
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm p-5">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Total Donated</p>
-                    <p className="text-2xl font-bold text-foreground">{formatCurrency(totalDonated)}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm p-5">
-                    <p className="text-xs font-medium text-emerald-600 dark:text-emerald-500 uppercase tracking-wider mb-2">Zakat</p>
-                    <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-500">{formatCurrency(zakatDonated)}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm p-5">
-                    <p className="text-xs font-medium text-purple-600 dark:text-purple-500 uppercase tracking-wider mb-2">Sadaqah</p>
-                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-500">{formatCurrency(sadaqahDonated)}</p>
-                </div>
+            <ZakatPaymentCard />
+
+            {/* Totals */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                    ['Total given', totals.all, 'text-foreground'],
+                    ['Zakat', totals.Zakat, 'text-emerald-600 dark:text-emerald-500'],
+                    ['Sadaqah', totals.Sadaqah, 'text-purple-600 dark:text-purple-500'],
+                    ['Interest given away', totals.Interest, 'text-amber-700 dark:text-amber-500'],
+                ].map(([label, value, cls]) => (
+                    <div key={label as string} className="rounded-xl border border-border bg-card shadow-sm p-4">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">{label}</p>
+                        <p className={`text-xl font-bold tabular-nums ${cls}`}>{fmt(value as number)}</p>
+                    </div>
+                ))}
             </div>
 
-            {/* Add form modal */}
-            {showForm && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowForm(false)} />
-                    <div className="relative w-full max-w-md rounded-xl bg-card text-card-foreground border border-border shadow-2xl p-6 space-y-5">
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-lg font-semibold text-foreground">New Donation</h2>
-                            <button onClick={() => setShowForm(false)} className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
-                                <X size={18} />
-                            </button>
-                        </div>
-
-                        {/* Category */}
-                        <div>
-                            <label className="block text-sm font-medium text-foreground mb-2">Category</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {(['Zakat', 'Sadaqah', 'Other'] as DonationEntry['category'][]).map((cat) => (
-                                    <button key={cat} type="button" onClick={() => setNewCategory(cat)}
-                                        className={`px-3 py-2.5 rounded-lg text-sm font-medium transition-all border ${newCategory === cat
-                                            ? cat === 'Zakat'
-                                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 shadow-sm'
-                                                : cat === 'Sadaqah'
-                                                    ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30 shadow-sm'
-                                                    : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 shadow-sm'
-                                            : 'bg-secondary text-muted-foreground border-border hover:bg-secondary/80'
-                                            }`}
-                                    >{cat}</button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Date */}
-                        <div>
-                            <label className="block text-sm font-medium text-foreground mb-2">Date</label>
-                            <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)}
-                                className="w-full px-4 py-2.5 rounded-lg bg-background border border-border text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent transition-all"
-                            />
-                        </div>
-
-                        {/* Amount */}
-                        <div>
-                            <label className="block text-sm font-medium text-foreground mb-2">Amount ({settings.baseCurrency})</label>
-                            <input type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} placeholder="0"
-                                className="w-full px-4 py-2.5 rounded-lg bg-background border border-border text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent transition-all"
-                            />
-                        </div>
-
-                        {/* Recipient */}
-                        <div>
-                            <label className="block text-sm font-medium text-foreground mb-2">Recipient / Organization</label>
-                            <input type="text" value={newRecipient} onChange={(e) => setNewRecipient(e.target.value)} placeholder="e.g. Local Masjid, UNHCR"
-                                className="w-full px-4 py-2.5 rounded-lg bg-background border border-border text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent transition-all"
-                            />
-                        </div>
-
-                        {/* Notes */}
-                        <div>
-                            <label className="block text-sm font-medium text-foreground mb-2">Notes (optional)</label>
-                            <textarea value={newNotes} onChange={(e) => setNewNotes(e.target.value)} placeholder="Any details..."
-                                rows={2}
-                                className="w-full px-4 py-2.5 rounded-lg bg-background border border-border text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent transition-all resize-none"
-                            />
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex gap-3 pt-4">
-                            <button onClick={() => setShowForm(false)}
-                                className="flex-1 py-2 rounded-md text-sm font-medium bg-secondary text-secondary-foreground border border-border hover:bg-secondary/80 transition-colors"
-                            >Cancel</button>
-                            <button onClick={handleAdd} disabled={saving}
-                                className="flex-1 py-2 rounded-md text-sm font-medium bg-rose-600 text-white hover:bg-rose-700 transition-colors shadow-sm disabled:opacity-60"
-                            >{saving ? 'Saving…' : 'Add Donation'}</button>
-                        </div>
-
-                    </div>
-                </div>
-            )}
-
-            {error && (syncStatus === 'error' || syncStatus === 'reauth') && (
-                <p className="text-sm text-destructive">{error}</p>
-            )}
-
-            {/* Donation List */}
-            {donations.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center">
-                    <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-rose-500/10 flex items-center justify-center">
-                        <Heart size={28} className="text-rose-500" />
-                    </div>
-                    <p className="text-lg font-semibold text-foreground mb-2">No donations recorded yet</p>
-                    <p className="text-sm text-muted-foreground leading-relaxed">Track your Zakat and Sadaqah payments to keep a clear record.</p>
-                </div>
-            ) : (
-                <div className="space-y-3">
-                    {donations.map((d) => (
-                        <div key={d.id} className="group rounded-xl border border-border bg-card text-card-foreground shadow-sm p-4 flex items-center gap-4 hover:border-primary/30 transition-all">
-                            {/* Category badge */}
-                            <div className={`w-2.5 h-10 rounded-full flex-shrink-0 ${d.category === 'Zakat' ? 'bg-emerald-500'
-                                : d.category === 'Sadaqah' ? 'bg-purple-500' : 'bg-blue-500'
-                                }`} />
-
-                            {/* Details */}
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-3 mb-1">
-                                    <p className="text-base font-semibold text-foreground truncate">{d.recipient}</p>
-                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${d.category === 'Zakat'
-                                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                        : d.category === 'Sadaqah'
-                                            ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                                            : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                                        }`}>{d.category}</span>
-                                </div>
-                                <div className="flex items-center gap-3 mt-1">
-                                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
-                                        <Calendar size={14} className="opacity-70" />
-                                        <p>{new Date(d.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}</p>
+            {/* Plans */}
+            {plans.length > 0 && (
+                <section className="space-y-3">
+                    <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Payment plans</h2>
+                    {plans.map((plan) => {
+                        const p = planProgress(plan, allDonations, today);
+                        const pct = plan.totalAmount > 0 ? Math.min(100, (p.paid / plan.totalAmount) * 100) : 0;
+                        return (
+                            <div key={plan.id} className="rounded-xl border border-border bg-card shadow-sm p-4 space-y-3">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                        <p className="font-semibold text-foreground">
+                                            {CATEGORY_STYLE[plan.category].label}: {fmt(plan.totalAmount)}
+                                            <span className="ml-2 text-xs font-medium text-muted-foreground">
+                                                {FREQUENCY_LABELS[plan.frequency]}
+                                                {plan.numberOfPayments > 1 && ` · ${plan.numberOfPayments} payments`}
+                                            </span>
+                                        </p>
+                                        <p className="text-sm text-muted-foreground">
+                                            Paid {fmt(p.paid)} · left {fmt(p.remaining)}
+                                            {plan.status === 'active' && p.next && <> · next {fmt(p.next.amount)} on {fmtDate(p.next.date)}</>}
+                                            {plan.status === 'active' && p.overdue > 0 && <span className="text-amber-600"> · {p.overdue} overdue</span>}
+                                            {plan.status !== 'active' && ` · ${plan.status}`}
+                                        </p>
+                                        {plan.notes && <p className="text-xs text-muted-foreground mt-1">{plan.notes}</p>}
                                     </div>
-                                    {d.notes && (
-                                        <>
-                                            <span className="text-muted-foreground/30">•</span>
-                                            <p className="text-xs text-muted-foreground truncate">{d.notes}</p>
-                                        </>
-                                    )}
+                                    <div className="flex items-center gap-2">
+                                        {plan.status === 'active' && !p.complete && (
+                                            <button
+                                                onClick={() =>
+                                                    setPayment({
+                                                        category: plan.category,
+                                                        amount: Math.min(p.next?.amount ?? p.remaining, p.remaining),
+                                                        planId: plan.id,
+                                                        title: 'Record an instalment',
+                                                    })
+                                                }
+                                                className="px-3 py-1.5 text-sm font-medium rounded-md bg-rose-600 text-white hover:bg-rose-700"
+                                            >
+                                                Record instalment
+                                            </button>
+                                        )}
+                                        {plan.status === 'active' && p.complete && (
+                                            <button onClick={() => setStatus(plan, 'completed')} className="px-3 py-1.5 text-sm font-medium rounded-md bg-secondary border border-border">
+                                                Mark complete
+                                            </button>
+                                        )}
+                                        {plan.status === 'active' && (
+                                            <button onClick={() => setStatus(plan, 'cancelled')} title="Stop this plan (payments made stay in the ledger)" className="p-2 rounded-md text-muted-foreground hover:bg-secondary">
+                                                <Ban size={16} />
+                                            </button>
+                                        )}
+                                        {plan.status !== 'active' && (
+                                            <button onClick={() => run(deleteDonationPlan(plan.id), 'Removed')} title="Remove plan (payments made stay in the ledger)" className="p-2 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+                                                <Trash2 size={16} />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                                    <div className={`h-full ${CATEGORY_STYLE[plan.category].bar}`} style={{ width: `${pct}%` }} />
                                 </div>
                             </div>
-
-                            {/* Amount */}
-                            <p className="text-lg font-bold text-foreground tabular-nums">{formatCurrency(d.amount)}</p>
-
-                            {/* Delete */}
-                            <button onClick={() => handleDelete(d.id)}
-                                className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-2.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all ml-2 flex-shrink-0"
-                            >
-                                <Trash2 size={18} />
-                            </button>
-                        </div>
-                    ))}
-                </div>
+                        );
+                    })}
+                </section>
             )}
+
+            {error && (syncStatus === 'error' || syncStatus === 'reauth') && <p className="text-sm text-destructive">{error}</p>}
+
+            {/* Payments */}
+            <section className="space-y-3">
+                {payments.length > 0 && <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Payments</h2>}
+                {payments.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center">
+                        <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-rose-500/10 flex items-center justify-center">
+                            <Heart size={28} className="text-rose-500" />
+                        </div>
+                        <p className="text-lg font-semibold text-foreground mb-2">No payments recorded yet</p>
+                        <p className="text-sm text-muted-foreground">Record each payment, even one split between several charities.</p>
+                    </div>
+                ) : (
+                    payments.map(({ paymentId, entries, total }) => {
+                        const first = entries[0];
+                        const style = CATEGORY_STYLE[first.category];
+                        const plan = first.planId ? donationPlans.find((p) => p.id === first.planId) : undefined;
+                        return (
+                            <div key={paymentId} className="group rounded-xl border border-border bg-card shadow-sm p-4 flex gap-4">
+                                <div className={`w-2.5 rounded-full flex-shrink-0 ${style.bar}`} />
+                                <div className="flex-1 min-w-0 space-y-1.5">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${style.badge}`}>{style.label}</span>
+                                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                            <Calendar size={13} /> {fmtDate(first.date)}
+                                        </span>
+                                        {plan && <span className="text-xs text-muted-foreground">· {FREQUENCY_LABELS[plan.frequency]} plan</span>}
+                                    </div>
+                                    {entries.map((d) => (
+                                        <div key={d.id} className="flex items-center justify-between gap-3 text-sm">
+                                            <span className="truncate text-foreground">{d.recipient}</span>
+                                            {entries.length > 1 && <span className="tabular-nums text-muted-foreground">{fmt(d.amount)}</span>}
+                                        </div>
+                                    ))}
+                                    {first.notes && <p className="text-xs text-muted-foreground truncate">{first.notes}</p>}
+                                </div>
+                                <div className="flex flex-col items-end justify-between">
+                                    <p className="text-lg font-bold text-foreground tabular-nums">{fmt(total)}</p>
+                                    <button
+                                        onClick={() => run(deletePayment(paymentId), 'Removed')}
+                                        aria-label="Delete payment"
+                                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
+            </section>
+
+            {payment && <PaymentForm defaults={payment} onClose={() => setPayment(null)} />}
+            {planOpen && <PlanForm onClose={() => setPlanOpen(false)} />}
         </div>
     );
 }

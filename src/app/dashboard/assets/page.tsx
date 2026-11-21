@@ -29,6 +29,7 @@ import {
     type ZakatMethod,
     type WeightUnit,
     CURRENCIES,
+    type InterestEntry,
 } from '@/lib/types';
 import { calculateRetirementNetAccessible } from '@/lib/tax-data';
 import { v4 as uuid } from 'uuid';
@@ -37,6 +38,9 @@ import YearSelector from '@/components/YearSelector';
 // ─── Tab & Type Groupings ─────────────────────────────────
 
 type AssetTab = 'Money' | 'Stocks' | 'Gold & Silver';
+
+/** Asset types that can pay interest (bank accounts, brokerage cash, retirement, loans made). */
+const INTEREST_TYPES: AssetType[] = ['Bank', 'Stock', 'Retirement', 'Debt_Receivable'];
 
 const ASSET_TABS: { key: AssetTab; label: string; icon: typeof DollarSign; types: AssetType[] }[] = [
     { key: 'Money', label: 'Money', icon: Banknote, types: ['Cash', 'Bank', 'Debt_Receivable'] },
@@ -97,7 +101,7 @@ const gradientMap: Record<string, string> = {
 // ─── Component ────────────────────────────────────────────
 
 export default function AssetsPage() {
-    const { addAsset, updateAsset, removeAsset, settings, dashboard, prices, selectedYear, getAssetsForYear } = useZakatStore();
+    const { addAsset, updateAsset, removeAsset, settings, dashboard, prices, selectedYear, getAssetsForYear, interest, saveInterest } = useZakatStore();
     const yearAssets = getAssetsForYear(selectedYear);
     const [activeTab, setActiveTab] = useState<AssetTab>('Money');
     const [showForm, setShowForm] = useState(false);
@@ -124,6 +128,10 @@ export default function AssetsPage() {
     const [zakatMethod, setZakatMethod] = useState<ZakatMethod>('Market');
     const [cryptoIntent, setCryptoIntent] = useState<CryptoIntent>('Currency');
     const [debtStrength, setDebtStrength] = useState<'Strong' | 'Weak' | 'Intermediate'>('Strong');
+    // Interest earned on this account (recorded in the Interest tab; must be given away)
+    const [earnsInterest, setEarnsInterest] = useState(false);
+    const [interestAmount, setInterestAmount] = useState('');
+    const [interestPeriod, setInterestPeriod] = useState<InterestEntry['period']>('year');
 
     const isGoldSilver = newType === 'Gold' || newType === 'Silver';
 
@@ -169,6 +177,9 @@ export default function AssetsPage() {
         setZakatMethod('Market');
         setCryptoIntent('Currency');
         setDebtStrength('Strong');
+        setEarnsInterest(false);
+        setInterestAmount('');
+        setInterestPeriod('year');
     };
 
     const openFormForTab = () => {
@@ -195,6 +206,9 @@ export default function AssetsPage() {
         setZakatMethod(asset.zakatMethod || 'Market');
         setCryptoIntent(asset.cryptoIntent || 'Currency');
         setDebtStrength(asset.debtStrength || 'Strong');
+        setEarnsInterest(asset.earnsInterest || false);
+        setInterestAmount('');
+        setInterestPeriod('year');
         if (asset.weightGrams && !asset.isETF) {
             const unit = asset.weightUnit || 'grams';
             const unitInfo = WEIGHT_UNITS.find((u) => u.value === unit);
@@ -207,6 +221,14 @@ export default function AssetsPage() {
         setGoldPurity(asset.goldPurity || 24);
         setShowForm(true);
     };
+
+    // Accounts that can pay interest. "Interest" on a mandatory employer pension is
+    // not ribā (A Guide to Zakāt, "Zakāt on Retirement Accounts"), so it is excluded.
+    const canEarnInterest =
+        INTEREST_TYPES.includes(newType) && !(newType === 'Retirement' && retirementType === 'Mandatory');
+    const interestRecorded = editingAsset
+        ? interest.filter((e) => e.assetId === editingAsset.id).reduce((s, e) => s + e.amount, 0)
+        : 0;
 
     const buildAssetFromForm = (id: string): Asset => {
         let grossValue = Number(newValue) || 0;
@@ -255,14 +277,33 @@ export default function AssetsPage() {
                 ? retirementAccountType : undefined,
             cryptoIntent: newType === 'Crypto' ? cryptoIntent : undefined,
             debtStrength: newType === 'Debt_Receivable' ? debtStrength : undefined,
+            earnsInterest: canEarnInterest ? earnsInterest : undefined,
             deductibleTaxPenalty: 0,
             netZakatableValue: 0,
         };
     };
 
+    /** Interest typed into the form becomes an entry in the Interest tab, linked to the account. */
+    const recordInterest = (asset: Asset) => {
+        const amount = Number(interestAmount);
+        if (!canEarnInterest || !earnsInterest || !(amount > 0)) return;
+        saveInterest({
+            id: uuid(),
+            zakatYear: selectedYear,
+            date: new Date().toISOString().slice(0, 10),
+            assetId: asset.id,
+            accountName: asset.name,
+            currency: asset.currency,
+            amount: Math.round(amount * 100) / 100,
+            period: interestPeriod,
+            notes: 'Added with the account',
+        }).catch(() => {});
+    };
+
     const handleAdd = () => {
         const asset = buildAssetFromForm(uuid());
         addAsset(asset);
+        recordInterest(asset);
         resetForm();
         setShowForm(false);
     };
@@ -271,6 +312,7 @@ export default function AssetsPage() {
         if (!editingAsset) return;
         const asset = buildAssetFromForm(editingAsset.id);
         updateAsset(asset);
+        recordInterest(asset);
         setEditingAsset(null);
         setShowForm(false);
     };
@@ -900,6 +942,56 @@ export default function AssetsPage() {
                                         {debtStrength === 'Intermediate' && 'Debt for non-trade goods — zakatable only after received.'}
                                         {debtStrength === 'Weak' && 'Inheritance, mahr, wages not yet received — zakatable only after received.'}
                                     </p>
+                                </div>
+                            )}
+
+                            {/* Interest earned */}
+                            {canEarnInterest && (
+                                <div className="rounded-xl border border-border p-3 space-y-3">
+                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                        <span>
+                                            <span className="block text-sm font-medium text-foreground">This account earns interest</span>
+                                            <span className="block text-[11px] text-muted-foreground">
+                                                Track it so you can give all of it away. It is not counted as your wealth.
+                                            </span>
+                                        </span>
+                                        <input
+                                            type="checkbox"
+                                            checked={earnsInterest}
+                                            onChange={(e) => setEarnsInterest(e.target.checked)}
+                                            className="h-5 w-5 accent-amber-600"
+                                        />
+                                    </label>
+                                    {earnsInterest && (
+                                        <div className="space-y-2">
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="0.01"
+                                                    value={interestAmount}
+                                                    onChange={(e) => setInterestAmount(e.target.value)}
+                                                    placeholder={`Amount (${newCurrency})`}
+                                                    className="w-full px-3 py-2.5 rounded-xl bg-background border border-input text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                                                />
+                                                <select
+                                                    value={interestPeriod}
+                                                    onChange={(e) => setInterestPeriod(e.target.value as InterestEntry['period'])}
+                                                    className="w-full px-3 py-2.5 rounded-xl bg-background border border-input text-foreground text-sm"
+                                                >
+                                                    <option value="month">this month</option>
+                                                    <option value="year">this year</option>
+                                                    <option value="other">other period</option>
+                                                </select>
+                                            </div>
+                                            <p className="text-[11px] text-muted-foreground">
+                                                {interestRecorded > 0
+                                                    ? `Already recorded for this account: ${interestRecorded.toFixed(2)} ${newCurrency}. Anything you enter here is added. `
+                                                    : 'Optional: enter it now, or add statements later. '}
+                                                See everything on the <a href="/dashboard/interest" className="underline">Interest</a> page.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
